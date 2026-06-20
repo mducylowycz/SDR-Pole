@@ -11,10 +11,14 @@ import app.sdrpole.core.GeoPoint;
 import app.sdrpole.core.FrequencyPreset;
 import app.sdrpole.core.ReceiverConfig;
 import app.sdrpole.core.ReceiverListener;
+import app.sdrpole.core.RfFrontendSettings;
+import app.sdrpole.core.p25.P25SystemConfig;
+import app.sdrpole.core.p25.P25SystemStore;
 import app.sdrpole.core.SdrDevice;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
+import javafx.beans.property.SimpleBooleanProperty;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
@@ -27,6 +31,7 @@ import javafx.stage.Stage;
 import javafx.stage.FileChooser;
 
 import java.util.List;
+import java.util.ArrayList;
 import java.util.prefs.Preferences;
 import javax.sound.sampled.AudioFormat;
 import javax.sound.sampled.AudioSystem;
@@ -43,6 +48,7 @@ public final class SdrPoleApplication extends Application {
     private final DeviceDiscoveryService discovery = new DeviceDiscoveryService();
     private final DecoderLibraryManager libraries = new DecoderLibraryManager();
     private final Preferences preferences = Preferences.userNodeForPackage(SdrPoleApplication.class);
+    private final P25SystemStore p25SystemStore = new P25SystemStore();
     private final BorderPane shell = new BorderPane();
     private final Label status = muted("Ready — connect one or more SDRs and choose Devices");
     private List<SdrDevice> devices = List.of();
@@ -51,9 +57,13 @@ public final class SdrPoleApplication extends Application {
     private String currentPage = "Home";
     private boolean advancedMode;
     private SdrDevice preferredDevice;
+    private final List<P25SystemConfig> configuredSystems = new ArrayList<>();
+    private SiteMapView siteMap;
 
     @Override public void start(Stage stage) {
         advancedMode = preferences.getBoolean("advancedMode", false);
+        try { configuredSystems.addAll(p25SystemStore.load()); }
+        catch (Exception error) { status.setText("Saved P25 sites could not be loaded: " + error.getMessage()); }
         shell.setStyle("-fx-background-color: " + BG + ";");
         shell.setTop(topBar());
         shell.setLeft(navigation());
@@ -66,6 +76,8 @@ public final class SdrPoleApplication extends Application {
         stage.setMinHeight(650);
         stage.setScene(scene);
         stage.show();
+        var requestedPage = System.getProperty("sdrpole.startPage", "Home");
+        if (!"Home".equals(requestedPage) && navigation.getItems().contains(requestedPage)) navigateTo(requestedPage);
         refreshDevices(false);
     }
 
@@ -122,15 +134,13 @@ public final class SdrPoleApplication extends Application {
             case "Devices" -> devicesPage();
             case "Nearby" -> nearbyPage();
             case "Decoders" -> decodersPage();
-            case "Systems" -> featurePage("Systems", "Import SDRTrunk playlists or add a local system",
-                    "Favorites", "Automatic control-channel discovery", "Talkgroup aliases", "Portable backups");
+            case "Systems" -> systemsPage();
             case "Live Calls" -> featurePage("Live Calls", "Every active call, understandable at a glance",
                     "Hold a talkgroup", "Priority scanning", "Per-call volume", "Encrypted-call indicator");
             case "Spectrum" -> spectrumPage();
             case "Recordings" -> featurePage("Recordings", "Search calls by system, talkgroup, radio, or time",
                     "Automatic naming", "Retention rules", "Export audio", "Call metadata");
-            case "Map" -> featurePage("Map & direction finding", "Known sites, observations, and bearings—without pretending one receiver can locate a transmitter",
-                    "Licensed-site map", "Signal observations", "Bearing overlays", "Coherent-array roadmap");
+            case "Map" -> mapPage();
             case "Diagnostics" -> diagnosticsPage();
             default -> featurePage("Settings", "Sensible defaults first; advanced controls when needed",
                     "Audio output", "Storage", "Updates", "Privacy");
@@ -216,6 +226,97 @@ public final class SdrPoleApplication extends Application {
                 label("Discovery sources", 19, true), sources, truth));
     }
 
+    private Node systemsPage() {
+        var title = label("P25 system setup", 28, true);
+        var subtitle = muted("Add one site with its primary control channel. SDR-Pole keeps the protocol details underneath the guided form.");
+        var systemName = new TextField();
+        systemName.setPromptText("Example: County Public Safety");
+        var siteName = new TextField();
+        siteName.setPromptText("Example: North Site");
+        var control = new TextField();
+        control.setPromptText("Control frequency in MHz");
+        var latitude = new TextField(preferences.get("location.latitude", ""));
+        latitude.setPromptText("Optional latitude");
+        var longitude = new TextField(preferences.get("location.longitude", ""));
+        longitude.setPromptText("Optional longitude");
+        var modulation = new ComboBox<P25SystemConfig.Modulation>();
+        modulation.getItems().addAll(P25SystemConfig.Modulation.values());
+        modulation.getSelectionModel().select(P25SystemConfig.Modulation.C4FM);
+        modulation.setPrefWidth(165);
+        var trafficLimit = new Spinner<Integer>(1, 32, 3);
+        trafficLimit.setPrefWidth(90);
+        var formState = muted("Nothing is saved until the fields pass validation.");
+        var save = primaryButton("Save site and show on map");
+        save.setOnAction(event -> {
+            try {
+                long controlHz = Math.round(Double.parseDouble(control.getText().trim()) * 1_000_000);
+                GeoPoint point = null;
+                if (!latitude.getText().isBlank() || !longitude.getText().isBlank()) {
+                    point = new GeoPoint(Double.parseDouble(latitude.getText().trim()), Double.parseDouble(longitude.getText().trim()));
+                }
+                var config = new P25SystemConfig(systemName.getText().trim(), siteName.getText().trim(),
+                        List.of(controlHz), modulation.getValue(), trafficLimit.getValue(), point);
+                configuredSystems.removeIf(existing -> existing.systemName().equalsIgnoreCase(config.systemName())
+                        && existing.siteName().equalsIgnoreCase(config.siteName()));
+                configuredSystems.add(config);
+                p25SystemStore.save(configuredSystems);
+                formState.setText("Saved " + config.systemName() + " / " + config.siteName() + " at " + String.format("%.5f MHz", controlHz / 1_000_000.0));
+                status.setText("P25 site configuration saved locally");
+                if (point != null) navigateTo("Map");
+            } catch (Exception error) {
+                formState.setText("Fix this site: " + error.getMessage());
+            }
+        });
+        var firstRow = new HBox(10, field("System name", systemName), field("Site name", siteName), field("Control channel", control));
+        HBox.setHgrow(systemName, Priority.ALWAYS);
+        HBox.setHgrow(siteName, Priority.ALWAYS);
+        var secondRow = new HBox(10, field("Modulation", modulation), field("Traffic limit", trafficLimit),
+                field("Latitude", latitude), field("Longitude", longitude));
+
+        var pipeline = new VBox(8,
+                readinessRow("Radio and protected RF front end", !devices.isEmpty(), devices.isEmpty() ? "Connect a radio" : "Ready"),
+                readinessRow("Site and control-channel configuration", !configuredSystems.isEmpty(), configuredSystems.isEmpty() ? "Add a site above" : configuredSystems.size() + " site(s) configured"),
+                readinessRow("P25 C4FM/LSM symbol recovery", false, "DSP implementation pending"),
+                readinessRow("P25 frame and CRC decoding", false, "Implementation pending"),
+                readinessRow("Band plans, grants, neighbors, calls", true, "State engine implemented and tested"),
+                readinessRow("IMBE/AMBE voice", libraries.jmbePath().isPresent(), libraries.jmbePath().isPresent() ? "JMBE ready for decoded frames" : "Install JMBE"));
+        var explanation = muted("Phase 2 systems still use a Phase 1 control channel. Choose C4FM for a conventional/non-simulcast site and LSM for simulcast. SDR-Pole will not start a fake decoder while symbol/frame recovery is unfinished.");
+        explanation.setWrapText(true);
+        return page(new VBox(15, title, subtitle, firstRow, secondRow, save, formState,
+                new Separator(), label("Control-channel pipeline", 19, true), pipeline, explanation));
+    }
+
+    private Node mapPage() {
+        if (siteMap == null) siteMap = new SiteMapView();
+        for (var config : configuredSystems) {
+            if (config.location() != null) siteMap.addMarker(new SiteMapView.SiteMarker(
+                    config.systemName() + " / " + config.siteName(), config.location(), config.controlFrequenciesHz().getFirst()));
+        }
+        var title = label("System site map", 28, true);
+        var subtitle = muted("Drag to pan, scroll to zoom, and center the map on coordinates. Site markers can carry control-channel configuration.");
+        var latitude = new TextField(preferences.get("location.latitude", "39.5"));
+        var longitude = new TextField(preferences.get("location.longitude", "-98.35"));
+        latitude.setPrefWidth(120); longitude.setPrefWidth(120);
+        var center = primaryButton("Center map");
+        var mapState = muted("Map data © OpenStreetMap contributors • visible tiles are cached locally for at least seven days.");
+        center.setOnAction(event -> {
+            try {
+                var point = new GeoPoint(Double.parseDouble(latitude.getText().trim()), Double.parseDouble(longitude.getText().trim()));
+                siteMap.centerOn(point, 10);
+                preferences.put("location.latitude", latitude.getText().trim());
+                preferences.put("location.longitude", longitude.getText().trim());
+                mapState.setText(String.format("Centered at %.5f, %.5f", point.latitude(), point.longitude()));
+            } catch (RuntimeException error) {
+                mapState.setText("Enter valid latitude and longitude");
+            }
+        });
+        var controls = new HBox(10, field("Latitude", latitude), field("Longitude", longitude), center);
+        controls.setAlignment(Pos.BOTTOM_LEFT);
+        var truth = muted("Markers show documented or user-entered site locations—not positions inferred from one HackRF. Direction finding needs bearings from multiple observations or coherent receivers.");
+        truth.setWrapText(true);
+        return page(new VBox(12, title, subtitle, controls, mapState, siteMap, truth));
+    }
+
     private Node sourceRow(String name, String description, String state) {
         var copy = new VBox(4, label(name, 17, true), muted(description));
         ((Label) copy.getChildren().get(1)).setWrapText(true);
@@ -299,11 +400,46 @@ public final class SdrPoleApplication extends Application {
         gain.disableProperty().bind(automaticGain.selectedProperty());
         var gainLabel = muted("Gain 24 dB");
         gain.valueProperty().addListener((o, old, value) -> gainLabel.setText("Gain " + Math.round(value.doubleValue()) + " dB"));
+        var genericGain = field("Generic tuner gain", new VBox(2, gain, gainLabel));
+
+        var lna = steppedSlider(0, 40, 16, 8);
+        var lnaLabel = muted("LNA 16 dB");
+        lna.valueProperty().addListener((o, old, value) -> lnaLabel.setText("LNA " + Math.round(value.doubleValue() / 8) * 8 + " dB"));
+        var vga = steppedSlider(0, 62, 16, 2);
+        var vgaLabel = muted("VGA 16 dB");
+        vga.valueProperty().addListener((o, old, value) -> vgaLabel.setText("VGA " + Math.round(value.doubleValue() / 2) * 2 + " dB"));
+        var rfAmp = new CheckBox("RF amp (+~11 dB)");
+        var antennaPower = new CheckBox("Antenna power (3.3 V)");
+        for (var box : List.of(rfAmp, antennaPower)) box.setStyle("-fx-text-fill: " + TEXT + ";");
+        var riskConfirmed = new SimpleBooleanProperty(false);
+        rfAmp.setOnAction(event -> confirmHighRisk(rfAmp, riskConfirmed, "Enable HackRF RF amplifier?",
+                "The amplifier is only for weak signals. HackRF's maximum safe input is -5 dBm and software cannot detect excessive external RF. Use attenuation near transmitters."));
+        antennaPower.setOnAction(event -> confirmHighRisk(antennaPower, riskConfirmed, "Enable antenna-port power?",
+                "This supplies approximately 3.0–3.3 V with a 50 mA maximum. Enable it only for compatible active antennas or external LNAs. It can damage incompatible or shorted accessories."));
+        var protectedControls = new HBox(10, field("HackRF IF gain", new VBox(2, lna, lnaLabel)),
+                field("HackRF baseband gain", new VBox(2, vga, vgaLabel)), rfAmp, antennaPower);
+        protectedControls.setAlignment(Pos.BOTTOM_LEFT);
+        var safety = muted("Protection: RF amp OFF • antenna power OFF • LNA/VGA vendor-clamped • maximum input -5 dBm");
+        safety.setWrapText(true);
+
+        Runnable updateHardwareControls = () -> {
+            boolean hackrf = deviceChoice.getValue() != null && "hackrf".equalsIgnoreCase(deviceChoice.getValue().driver());
+            protectedControls.setManaged(hackrf);
+            protectedControls.setVisible(hackrf);
+            safety.setManaged(hackrf);
+            safety.setVisible(hackrf);
+            genericGain.setManaged(!hackrf);
+            genericGain.setVisible(!hackrf);
+            automaticGain.setDisable(hackrf);
+            if (hackrf) automaticGain.setSelected(false);
+        };
+        deviceChoice.valueProperty().addListener((o, old, selected) -> updateHardwareControls.run());
+        updateHardwareControls.run();
 
         var essentials = new HBox(10, field("Radio", deviceChoice), field("Frequency (MHz)", frequency), field("Mode", mode));
         essentials.setAlignment(Pos.BOTTOM_LEFT);
-        var advancedControls = new HBox(10, field("Sample rate", sampleRate),
-                field("Tuner gain", new VBox(2, gain, gainLabel)), automaticGain);
+        var advancedControls = new VBox(8, new HBox(10, field("Sample rate", sampleRate), genericGain, automaticGain),
+                protectedControls, safety);
         advancedControls.setAlignment(Pos.BOTTOM_LEFT);
         var controls = new VBox(10, field("Quick examples", preset), essentials);
         if (advancedMode) controls.getChildren().add(advancedControls);
@@ -328,8 +464,13 @@ public final class SdrPoleApplication extends Application {
                 preferences.put("lastFrequencyMhz", frequency.getText().trim());
                 preferences.put("lastMode", mode.getValue().name());
                 closeReceiver();
+                var frontend = "hackrf".equalsIgnoreCase(selected.driver())
+                        ? new RfFrontendSettings(Math.round(lna.getValue() / 8) * 8,
+                        Math.round(vga.getValue() / 2) * 2, rfAmp.isSelected(), antennaPower.isSelected(), riskConfirmed.get())
+                        : RfFrontendSettings.safeDefaults(selected);
                 activeReceiver = new LiveNfmReceiver(
-                        new ReceiverConfig(selected, hz, sampleRate.getValue(), gain.getValue(), automaticGain.isSelected(), 48_000, mode.getValue()),
+                        new ReceiverConfig(selected, hz, sampleRate.getValue(), gain.getValue(), automaticGain.isSelected(),
+                                48_000, mode.getValue(), frontend),
                         new ReceiverListener() {
                             @Override public void onStatus(String message) { Platform.runLater(() -> receiverStatus.setText(message)); }
                             @Override public void onSpectrum(float[] powerDb) { waterfall.accept(powerDb); }
@@ -580,6 +721,25 @@ public final class SdrPoleApplication extends Application {
 
     private VBox field(String title, Node control) {
         return new VBox(5, muted(title), control);
+    }
+
+    private Slider steppedSlider(double minimum, double maximum, double value, double step) {
+        var slider = new Slider(minimum, maximum, value);
+        slider.setBlockIncrement(step);
+        slider.setMajorTickUnit(step);
+        slider.setSnapToTicks(true);
+        slider.setPrefWidth(145);
+        return slider;
+    }
+
+    private void confirmHighRisk(CheckBox control, SimpleBooleanProperty confirmed, String title, String detail) {
+        if (!control.isSelected()) return;
+        var alert = new Alert(Alert.AlertType.WARNING, detail, ButtonType.CANCEL, ButtonType.OK);
+        alert.setTitle("RF hardware protection");
+        alert.setHeaderText(title);
+        boolean accepted = alert.showAndWait().filter(ButtonType.OK::equals).isPresent();
+        control.setSelected(accepted);
+        if (accepted) confirmed.set(true);
     }
 
     private ListCell<SdrDevice> deviceCell() {

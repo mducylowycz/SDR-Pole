@@ -60,8 +60,39 @@ reference and supports P25 trunking Phase 1/2. It is not copied into this
 clean-room codebase. Any future OP25 process adapter must preserve GPL terms and
 remain clearly identified as a separately installed engine.
 
+The clean-room trunking state layer models validated WACN/System/NAC identities,
+channel-identifier band plans, current and adjacent sites, group voice grants,
+Phase 2 slots, encryption indicators, pending grants, and call expiry. It starts
+with decoded control events; C4FM/LSM symbol recovery, framing, CRC/FEC, and
+TSBK/MBT parsing remain separate required stages.
+
 Encrypted calls may be detected, labeled, logged, or muted. SDR-Pole will not
 attempt to defeat encryption.
+
+## RF front-end protection
+
+Hardware protection is profile-driven and happens before native driver calls.
+For HackRF One, SDR-Pole uses the vendor's recommended safe start: RF amplifier
+off, LNA 16 dB, and VGA 16 dB. LNA is clamped to 0–40 dB in 8 dB steps and VGA
+to 0–62 dB in 2 dB steps. Antenna-port power and the near-antenna RF amplifier
+are driven off on every open unless the user accepts a targeted warning. The UI
+states the HackRF maximum input of -5 dBm.
+
+Software cannot sense or block excessive external RF at the SMA port. Users near
+transmitters still need a suitable external attenuator and band filter. Antenna
+power is limited by hardware to approximately 3.0–3.3 V and 50 mA and must only
+be used with compatible active accessories.
+
+Sources: [HackRF gain controls](https://hackrf.readthedocs.io/en/latest/setting_gain.html),
+[HackRF One limits](https://hackrf.readthedocs.io/en/latest/hackrf_one.html), and
+[SoapyHackRF settings](https://github.com/pothosware/SoapyHackRF/blob/master/HackRF_Settings.cpp).
+
+## Site maps
+
+The map requests only tiles visible in a human-controlled viewport, identifies
+SDR-Pole with a stable User-Agent, retains tiles locally for at least seven days,
+does not prefetch, and displays OpenStreetMap attribution. This follows the
+current [OSM tile usage policy](https://operations.osmfoundation.org/policies/tiles/).
 
 ## User-experience requirements
 

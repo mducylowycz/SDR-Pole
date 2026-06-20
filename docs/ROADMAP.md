@@ -32,11 +32,15 @@ Checked items are implemented in the repository, not merely mocked in the UI.
 - [x] Initial center-channel NFM, WFM, AM, USB, LSB, and CW demodulation
 - [ ] Production channel filters, resampler, squelch, stereo WFM, and selectable audio output
 - [ ] Recording and replay fixtures for deterministic tests
+- [x] HackRF LNA/VGA element controls and safe vendor-step clamping
+- [x] RF amplifier and antenna-port power default-off interlocks
+- [ ] Per-device capability interrogation and safety profiles beyond HackRF
 
 ## Digital voice and trunking
 
 - [ ] P25 Phase 1 C4FM/CQPSK symbol and frame decoding
 - [ ] P25 control-channel messages and system/site discovery
+- [x] P25 identity, band-plan, neighbor-site, voice-grant, slot, and call-lifetime state engine
 - [ ] P25 talkgroup following across one or more tuners
 - [x] One-click JMBE Creator download, checksum verification, build, validation, and activation
 - [ ] Connect validated JMBE audio to decoded IMBE/AMBE frames
@@ -54,6 +58,7 @@ Checked items are implemented in the repository, not merely mocked in the UI.
 - [ ] Automatic tuner allocation by bandwidth and priority
 - [ ] Live calls, hold, lockout, priorities, aliases, and alerts
 - [ ] Searchable call history and configurable recording retention
-- [ ] Sites, neighbor lists, and optional mapping
+- [x] Interactive pan/zoom site map with control-channel markers
+- [ ] Feed decoded P25 neighbor-site events into persisted map layers
 - [ ] One-click support report with sensitive-data redaction
 - [ ] Accessible keyboard navigation, screen-reader labels, and localization

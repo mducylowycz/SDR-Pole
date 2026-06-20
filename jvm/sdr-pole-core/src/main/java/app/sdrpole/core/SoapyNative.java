@@ -17,6 +17,8 @@ interface SoapyNative extends Library {
     int SoapySDRDevice_setFrequency(Pointer device, int direction, long channel, double frequency, Pointer args);
     int SoapySDRDevice_setGainMode(Pointer device, int direction, long channel, boolean automatic);
     int SoapySDRDevice_setGain(Pointer device, int direction, long channel, double gain);
+    int SoapySDRDevice_setGainElement(Pointer device, int direction, long channel, String name, double gain);
+    void SoapySDRDevice_writeSetting(Pointer device, String key, String value);
     Pointer SoapySDRDevice_setupStream(Pointer device, int direction, String format,
                                       Pointer channels, long numChannels, Pointer args);
     int SoapySDRDevice_activateStream(Pointer device, Pointer stream, int flags, long timeNs, long numElems);

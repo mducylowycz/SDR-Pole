@@ -49,8 +49,7 @@ public final class LiveNfmReceiver implements AutoCloseable {
             if (device == null) throw new IllegalStateException("Radio could not be opened: " + nativeApi.SoapySDRDevice_lastError());
             check(nativeApi.SoapySDRDevice_setSampleRate(device, RX, 0, config.sampleRate()), "Unsupported sample rate");
             check(nativeApi.SoapySDRDevice_setFrequency(device, RX, 0, config.frequencyHz(), null), "Frequency is outside this radio's range");
-            nativeApi.SoapySDRDevice_setGainMode(device, RX, 0, config.automaticGain());
-            if (!config.automaticGain()) check(nativeApi.SoapySDRDevice_setGain(device, RX, 0, config.gainDb()), "Unsupported gain");
+            applyProtectedFrontend(nativeApi);
 
             stream = nativeApi.SoapySDRDevice_setupStream(device, RX, "CF32", null, 0, null);
             if (stream == null) throw new IllegalStateException("IQ stream could not start: " + nativeApi.SoapySDRDevice_lastError());
@@ -106,6 +105,20 @@ public final class LiveNfmReceiver implements AutoCloseable {
             api.SoapySDRDevice_closeStream(localDevice, localStream);
         }
         if (localDevice != null) api.SoapySDRDevice_unmake(localDevice);
+    }
+
+    private void applyProtectedFrontend(SoapyNative nativeApi) {
+        var safe = RfSafetyPolicy.sanitize(config.device(), config.frequencyHz(), config.frontend()).settings();
+        nativeApi.SoapySDRDevice_setGainMode(device, RX, 0, false);
+        if ("hackrf".equalsIgnoreCase(config.device().driver())) {
+            // Power and near-antenna RF amplification are explicitly driven to a known state on every open.
+            nativeApi.SoapySDRDevice_writeSetting(device, "bias_tx", Boolean.toString(safe.antennaPower()));
+            check(nativeApi.SoapySDRDevice_setGainElement(device, RX, 0, "AMP", safe.rfAmplifier() ? 11 : 0), "Could not set protected RF amplifier state");
+            check(nativeApi.SoapySDRDevice_setGainElement(device, RX, 0, "LNA", safe.lnaGainDb()), "Unsupported LNA gain");
+            check(nativeApi.SoapySDRDevice_setGainElement(device, RX, 0, "VGA", safe.vgaGainDb()), "Unsupported VGA gain");
+        } else if (!config.automaticGain()) {
+            check(nativeApi.SoapySDRDevice_setGain(device, RX, 0, config.gainDb()), "Unsupported gain");
+        }
     }
 
     @Override public synchronized void close() {
