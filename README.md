@@ -17,12 +17,14 @@ without exposing a wall of cryptic errors.
 ## Current features
 
 - Java 21 + JavaFX desktop application with a bundled runtime
-- Vendor-neutral SoapySDR discovery with HackRF fallback
+- Vendor-neutral SoapySDR discovery and live CF32 IQ streaming with HackRF fallback
 - Multiple-device data model for parallel receivers
 - HackRF One detection verified on macOS
+- Hardware-tested live HackRF stream, FFT waterfall, tuner controls, and NFM audio
 - Decoder plugin SPI using Java `ServiceLoader`
 - Staged decoder downloads with SHA-256 verification and atomic activation
 - Visible P25 Phase 1/2, DMR, and NXDN package/license status
+- Official JMBE Creator link plus local JMBE JAR validation
 - Guided home, device, system, call, spectrum, decoder, recording, map,
   diagnostics, and settings areas
 - Cross-platform Gradle wrapper and GitHub Actions build matrix
@@ -46,8 +48,8 @@ Build a self-contained macOS installer:
 ./gradlew :sdr-pole-desktop:macInstaller
 ```
 
-See [architecture](docs/ARCHITECTURE.md), [roadmap](docs/ROADMAP.md), and
-[contributing](CONTRIBUTING.md).
+See [architecture](docs/ARCHITECTURE.md), [technology decisions](docs/TECHNOLOGY.md),
+[roadmap](docs/ROADMAP.md), and [contributing](CONTRIBUTING.md).
 
 ## Decoder and hardware policy
 

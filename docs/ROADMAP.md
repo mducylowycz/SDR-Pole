@@ -14,11 +14,12 @@ Checked items are implemented in the repository, not merely mocked in the UI.
 
 ## Receiver engine
 
-- [ ] SoapySDR native streaming bridge
+- [x] SoapySDR native streaming bridge
 - [ ] Multiple simultaneous IQ streams
-- [ ] FFT spectrum and waterfall
+- [x] FFT spectrum and waterfall
 - [ ] Channelizer, resampler, squelch, and automatic gain
-- [ ] NFM/AM audio with selectable output devices
+- [x] Initial live center-channel NFM audio output
+- [ ] Production channel filters, resampler, squelch, AM, and selectable audio output
 - [ ] Recording and replay fixtures for deterministic tests
 
 ## Digital voice and trunking
@@ -26,7 +27,8 @@ Checked items are implemented in the repository, not merely mocked in the UI.
 - [ ] P25 Phase 1 C4FM/CQPSK symbol and frame decoding
 - [ ] P25 control-channel messages and system/site discovery
 - [ ] P25 talkgroup following across one or more tuners
-- [ ] IMBE vocoder package with platform/license checks
+- [x] JMBE discovery, official download path, patent notice, and JAR validation
+- [ ] Connect validated JMBE audio to decoded IMBE/AMBE frames
 - [ ] P25 Phase 2 TDMA traffic channels
 - [ ] AMBE+2 vocoder package with explicit terms
 - [ ] DMR and NXDN packages

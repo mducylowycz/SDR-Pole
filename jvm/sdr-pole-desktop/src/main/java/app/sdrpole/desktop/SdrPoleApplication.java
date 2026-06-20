@@ -3,6 +3,10 @@ package app.sdrpole.desktop;
 import app.sdrpole.core.BuiltInDecoderCatalog;
 import app.sdrpole.core.DecoderCatalogEntry;
 import app.sdrpole.core.DeviceDiscoveryService;
+import app.sdrpole.core.DecoderLibraryManager;
+import app.sdrpole.core.LiveNfmReceiver;
+import app.sdrpole.core.ReceiverConfig;
+import app.sdrpole.core.ReceiverListener;
 import app.sdrpole.core.SdrDevice;
 import javafx.application.Application;
 import javafx.application.Platform;
@@ -14,6 +18,7 @@ import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.layout.*;
 import javafx.stage.Stage;
+import javafx.stage.FileChooser;
 
 import java.util.List;
 
@@ -25,9 +30,11 @@ public final class SdrPoleApplication extends Application {
     private static final String ACCENT = "#22c6da";
 
     private final DeviceDiscoveryService discovery = new DeviceDiscoveryService();
+    private final DecoderLibraryManager libraries = new DecoderLibraryManager();
     private final BorderPane shell = new BorderPane();
     private final Label status = muted("Ready — connect one or more SDRs and choose Devices");
     private List<SdrDevice> devices = List.of();
+    private LiveNfmReceiver activeReceiver;
 
     @Override public void start(Stage stage) {
         shell.setStyle("-fx-background-color: " + BG + ";");
@@ -92,8 +99,7 @@ public final class SdrPoleApplication extends Application {
                     "Favorites", "Automatic control-channel discovery", "Talkgroup aliases", "Portable backups");
             case "Live Calls" -> featurePage("Live Calls", "Every active call, understandable at a glance",
                     "Hold a talkgroup", "Priority scanning", "Per-call volume", "Encrypted-call indicator");
-            case "Spectrum" -> featurePage("Spectrum & Waterfall", "See signal activity from every connected tuner",
-                    "Multi-receiver views", "Click to tune", "Signal labels", "Automatic gain");
+            case "Spectrum" -> spectrumPage();
             case "Recordings" -> featurePage("Recordings", "Search calls by system, talkgroup, radio, or time",
                     "Automatic naming", "Retention rules", "Export audio", "Call metadata");
             case "Map" -> featurePage("Map", "Sites and radio locations without spreadsheet archaeology",
@@ -162,12 +168,96 @@ public final class SdrPoleApplication extends Application {
         return page(new VBox(16, title, subtitle, rows, note));
     }
 
+    private Node spectrumPage() {
+        var title = label("Live tuner", 28, true);
+        var subtitle = muted("Tune a center-channel analog FM signal. The waterfall and audio are fed directly by the selected SDR.");
+        var deviceChoice = new ComboBox<SdrDevice>();
+        deviceChoice.getItems().setAll(devices);
+        deviceChoice.setPromptText(devices.isEmpty() ? "No SDR detected" : "Choose a radio");
+        deviceChoice.setPrefWidth(250);
+        deviceChoice.setButtonCell(deviceCell());
+        deviceChoice.setCellFactory(list -> deviceCell());
+        if (!devices.isEmpty()) deviceChoice.getSelectionModel().selectFirst();
+
+        var frequency = new TextField("155.25000");
+        frequency.setPromptText("Frequency in MHz");
+        frequency.setPrefWidth(130);
+        var sampleRate = new ComboBox<Integer>();
+        sampleRate.getItems().addAll(2_000_000, 4_000_000, 8_000_000, 10_000_000);
+        sampleRate.getSelectionModel().selectFirst();
+        sampleRate.setButtonCell(rateCell());
+        sampleRate.setCellFactory(list -> rateCell());
+
+        var automaticGain = new CheckBox("Automatic gain");
+        automaticGain.setStyle("-fx-text-fill: " + TEXT + ";");
+        var gain = new Slider(0, 62, 24);
+        gain.setPrefWidth(145);
+        gain.disableProperty().bind(automaticGain.selectedProperty());
+        var gainLabel = muted("Gain 24 dB");
+        gain.valueProperty().addListener((o, old, value) -> gainLabel.setText("Gain " + Math.round(value.doubleValue()) + " dB"));
+
+        var controls = new HBox(10,
+                field("Radio", deviceChoice), field("Frequency (MHz)", frequency),
+                field("Sample rate", sampleRate), field("Tuner gain", new VBox(2, gain, gainLabel)), automaticGain);
+        controls.setAlignment(Pos.BOTTOM_LEFT);
+
+        var waterfall = new WaterfallView(900, 300);
+        var receiverStatus = label("Stopped", 15, true);
+        var level = new ProgressBar(0);
+        level.setPrefWidth(180);
+        var listen = primaryButton("Listen");
+        var stop = secondaryButton("Stop");
+        stop.setDisable(true);
+
+        listen.setOnAction(event -> {
+            var selected = deviceChoice.getValue();
+            if (selected == null) {
+                receiverStatus.setText("Connect and select an SDR first");
+                return;
+            }
+            try {
+                long hz = Math.round(Double.parseDouble(frequency.getText().trim()) * 1_000_000);
+                closeReceiver();
+                activeReceiver = new LiveNfmReceiver(
+                        new ReceiverConfig(selected, hz, sampleRate.getValue(), gain.getValue(), automaticGain.isSelected(), 48_000),
+                        new ReceiverListener() {
+                            @Override public void onStatus(String message) { Platform.runLater(() -> receiverStatus.setText(message)); }
+                            @Override public void onSpectrum(float[] powerDb) { waterfall.accept(powerDb); }
+                            @Override public void onLevel(double rms) { Platform.runLater(() -> level.setProgress(Math.min(1, rms * 5))); }
+                            @Override public void onError(String friendlyMessage, Throwable cause) {
+                                Platform.runLater(() -> receiverStatus.setText(friendlyMessage));
+                            }
+                        });
+                activeReceiver.start();
+                listen.setDisable(true);
+                stop.setDisable(false);
+            } catch (NumberFormatException e) {
+                receiverStatus.setText("Enter a frequency such as 155.25000");
+            } catch (RuntimeException e) {
+                receiverStatus.setText(e.getMessage());
+            }
+        });
+        stop.setOnAction(event -> {
+            closeReceiver();
+            listen.setDisable(false);
+            stop.setDisable(true);
+            receiverStatus.setText("Stopped");
+        });
+
+        var transport = new HBox(10, listen, stop, receiverStatus, muted("Audio level"), level);
+        transport.setAlignment(Pos.CENTER_LEFT);
+        var help = muted("Tip: start with a known analog NFM frequency. P25 requires the P25 frame decoder plus JMBE-compatible voice package.");
+        help.setWrapText(true);
+        return page(new VBox(16, title, subtitle, controls, waterfall, transport, help));
+    }
+
     private Node decoderRow(DecoderCatalogEntry decoder) {
         var name = label(decoder.name(), 17, true);
         var description = muted(decoder.summary());
         description.setWrapText(true);
         var text = new VBox(4, name, description, muted("License: " + decoder.license()));
         HBox.setHgrow(text, Priority.ALWAYS);
+        if (decoder.id().equals("jmbe")) return jmbeRow(decoder, text);
         var button = switch (decoder.availability()) {
             case BUILT_IN -> secondaryButton("Installed");
             case READY_TO_INSTALL -> primaryButton("Install");
@@ -180,6 +270,46 @@ public final class SdrPoleApplication extends Application {
         row.setPadding(new Insets(16));
         row.setStyle(panelStyle());
         return row;
+    }
+
+    private Node jmbeRow(DecoderCatalogEntry decoder, VBox text) {
+        var installed = libraries.jmbePath();
+        if (installed.isPresent()) text.getChildren().add(accent("Installed: " + installed.get().getFileName()));
+        var download = primaryButton("Download creator");
+        download.setOnAction(event -> showJmbeNotice());
+        var select = secondaryButton("Select JAR");
+        select.setOnAction(event -> selectJmbe(text));
+        var actions = new HBox(8, download, select);
+        var row = new HBox(14, text, actions);
+        row.setAlignment(Pos.CENTER_LEFT);
+        row.setPadding(new Insets(16));
+        row.setStyle(panelStyle());
+        return row;
+    }
+
+    private void showJmbeNotice() {
+        var notice = new Alert(Alert.AlertType.CONFIRMATION);
+        notice.setTitle("JMBE voice library");
+        notice.setHeaderText("Review the upstream patent and license notice");
+        notice.setContentText("JMBE is a separate GPL-3.0 project. Its authors warn that compiled IMBE/AMBE implementations may be covered by patents in some locations. SDR-Pole does not bundle it. Continue to the official JMBE Creator download page?");
+        notice.showAndWait().filter(button -> button == ButtonType.OK)
+                .ifPresent(button -> getHostServices().showDocument("https://github.com/DSheirer/jmbe/releases/latest"));
+    }
+
+    private void selectJmbe(VBox text) {
+        var chooser = new FileChooser();
+        chooser.setTitle("Select a JMBE library");
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("Java libraries", "*.jar"));
+        var selected = chooser.showOpenDialog(shell.getScene().getWindow());
+        if (selected == null) return;
+        try {
+            libraries.selectJmbe(selected.toPath());
+            text.getChildren().removeIf(node -> node instanceof Label label && label.getText().startsWith("Installed:"));
+            text.getChildren().add(accent("Installed: " + selected.getName()));
+            status.setText("JMBE library validated and selected");
+        } catch (Exception e) {
+            status.setText(e.getMessage());
+        }
     }
 
     private Node diagnosticsPage() {
@@ -228,6 +358,28 @@ public final class SdrPoleApplication extends Application {
         box.setMinWidth(240);
         box.setStyle(panelStyle());
         return box;
+    }
+
+    private VBox field(String title, Node control) {
+        return new VBox(5, muted(title), control);
+    }
+
+    private ListCell<SdrDevice> deviceCell() {
+        return new ListCell<>() {
+            @Override protected void updateItem(SdrDevice item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? null : item.label() + " (" + shortSerial(item.serial()) + ")");
+            }
+        };
+    }
+
+    private ListCell<Integer> rateCell() {
+        return new ListCell<>() {
+            @Override protected void updateItem(Integer item, boolean empty) {
+                super.updateItem(item, empty);
+                setText(empty || item == null ? null : (item / 1_000_000) + " MS/s");
+            }
+        };
     }
 
     private Node emptyState(String title, String detail) {
@@ -301,6 +453,14 @@ public final class SdrPoleApplication extends Application {
         if (serial == null || serial.isBlank()) return "serial unavailable";
         return serial.length() <= 12 ? serial : "…" + serial.substring(serial.length() - 12);
     }
+
+    private void closeReceiver() {
+        var receiver = activeReceiver;
+        activeReceiver = null;
+        if (receiver != null) receiver.close();
+    }
+
+    @Override public void stop() { closeReceiver(); }
 
     public static void main(String[] args) { launch(args); }
 }
