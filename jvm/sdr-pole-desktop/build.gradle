@@ -1,0 +1,44 @@
+plugins {
+    id 'application'
+    id 'org.openjfx.javafxplugin'
+}
+
+dependencies {
+    implementation project(':sdr-pole-core')
+}
+
+javafx {
+    version = '21.0.7'
+    modules = ['javafx.controls', 'javafx.graphics']
+}
+
+application {
+    mainClass = 'app.sdrpole.desktop.Launcher'
+}
+
+tasks.register('runtimeImage', Exec) {
+    dependsOn installDist
+    commandLine 'jpackage',
+        '--type', 'app-image',
+        '--name', 'SDR-Pole',
+        '--input', layout.buildDirectory.dir('install/sdr-pole-desktop/lib').get().asFile,
+        '--main-jar', "sdr-pole-desktop-${project.version}.jar",
+        '--main-class', application.mainClass.get(),
+        '--dest', layout.buildDirectory.dir('package').get().asFile
+}
+
+tasks.register('macInstaller', Exec) {
+    dependsOn installDist
+    onlyIf { org.gradle.internal.os.OperatingSystem.current().isMacOsX() }
+    commandLine 'jpackage',
+        '--type', 'dmg',
+        '--name', 'SDR-Pole',
+        // macOS CFBundleVersion requires the leading component to be positive.
+        '--app-version', '1.0.0',
+        '--vendor', 'SDR-Pole',
+        '--description', 'Simple cross-platform software-defined radio monitoring',
+        '--input', layout.buildDirectory.dir('install/sdr-pole-desktop/lib').get().asFile,
+        '--main-jar', "sdr-pole-desktop-${project.version}.jar",
+        '--main-class', application.mainClass.get(),
+        '--dest', layout.buildDirectory.dir('installer').get().asFile
+}

@@ -1,0 +1,9 @@
+.DS_Store
+.build/
+jvm/.gradle/
+jvm/**/build/
+*.iml
+.idea/
+.vscode/
+recordings/
+diagnostics/
