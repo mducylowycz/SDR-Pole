@@ -316,7 +316,7 @@ public final class SdrPoleApplication extends Application {
         var title = label("Diagnostics", 28, true);
         var checks = new VBox(10,
                 check("Application", true, "Java runtime bundled"),
-                check("SDR provider", !devices.isEmpty(), devices.isEmpty() ? "No device detected" : devices.size() + " radio(s) detected"),
+                check("SDR provider", !devices.isEmpty(), devices.isEmpty() ? discovery.lastDiagnostic() : devices.size() + " radio(s) detected"),
                 check("Audio output", true, "System default output available"),
                 check("P25 decoder", false, "Decoder package has not been installed"));
         var copy = secondaryButton("Copy support report");
@@ -335,7 +335,7 @@ public final class SdrPoleApplication extends Application {
             var found = discovery.discover();
             Platform.runLater(() -> {
                 devices = found;
-                status.setText(found.isEmpty() ? "No SDR detected — reconnect it and open Diagnostics" :
+                status.setText(found.isEmpty() ? discovery.lastDiagnostic() :
                         found.size() + " SDR device(s) ready");
                 if (announce) shell.setCenter(devicesPage());
             });

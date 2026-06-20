@@ -7,3 +7,6 @@ jvm/**/build/
 .vscode/
 recordings/
 diagnostics/
+/SDR-Pole.app/
+/Installer/
+/Legacy Builds/

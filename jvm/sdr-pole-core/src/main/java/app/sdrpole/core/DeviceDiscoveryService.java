@@ -2,6 +2,8 @@ package app.sdrpole.core;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -12,24 +14,32 @@ import java.util.concurrent.TimeUnit;
 /** Discovers all locally installed SoapySDR devices, with a HackRF fallback. */
 public final class DeviceDiscoveryService {
     private final Duration timeout;
+    private volatile String lastDiagnostic = "Discovery has not run";
 
     public DeviceDiscoveryService() { this(Duration.ofSeconds(8)); }
     public DeviceDiscoveryService(Duration timeout) { this.timeout = timeout; }
 
     public List<SdrDevice> discover() {
-        var soapy = run("SoapySDRUtil", "--find");
+        var soapy = run(resolveExecutable("SoapySDRUtil"), "--find");
         var devices = parseSoapyFind(soapy.output());
-        if (!devices.isEmpty()) return devices;
+        if (!devices.isEmpty()) {
+            lastDiagnostic = "SoapySDR found " + devices.size() + " device(s)";
+            return devices;
+        }
 
-        var hackrf = run("hackrf_info");
+        var hackrf = run(resolveExecutable("hackrf_info"));
         if (hackrf.exitCode() == 0 && hackrf.output().contains("HackRF")) {
             var serial = valueAfter(hackrf.output(), "Serial number:");
+            lastDiagnostic = "HackRF found through libhackrf fallback";
             return List.of(new SdrDevice(
                     "hackrf:" + (serial.isBlank() ? "0" : serial), "hackrf", "HackRF One",
                     serial, true, Map.of("provider", "libhackrf")));
         }
+        lastDiagnostic = friendlyDiagnostic(soapy, hackrf);
         return List.of();
     }
+
+    public String lastDiagnostic() { return lastDiagnostic; }
 
     public static List<SdrDevice> parseSoapyFind(String output) {
         var result = new ArrayList<SdrDevice>();
@@ -69,7 +79,10 @@ public final class DeviceDiscoveryService {
 
     private CommandResult run(String... command) {
         try {
-            var process = new ProcessBuilder(command).redirectErrorStream(true).start();
+            var builder = new ProcessBuilder(command).redirectErrorStream(true);
+            builder.environment().merge("PATH", "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+                    (current, required) -> required + ":" + current);
+            var process = builder.start();
             if (!process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS)) {
                 process.destroyForcibly();
                 return new CommandResult(-1, "Timed out");
@@ -80,6 +93,28 @@ public final class DeviceDiscoveryService {
             if (e instanceof InterruptedException) Thread.currentThread().interrupt();
             return new CommandResult(-1, e.getMessage() == null ? "Unavailable" : e.getMessage());
         }
+    }
+
+    private static String resolveExecutable(String name) {
+        for (var directory : List.of("/usr/local/bin", "/opt/homebrew/bin", "/usr/bin", "/bin")) {
+            var candidate = Path.of(directory, name);
+            if (Files.isExecutable(candidate)) return candidate.toString();
+        }
+        return name;
+    }
+
+    private static String friendlyDiagnostic(CommandResult soapy, CommandResult hackrf) {
+        var combined = (soapy.output() + "\n" + hackrf.output()).toLowerCase();
+        if (combined.contains("no hackrf boards found") || combined.contains("no devices found")) {
+            return "macOS does not currently see an SDR on USB. Reconnect it directly, try another data cable/port, and refresh.";
+        }
+        if (combined.contains("access denied") || combined.contains("busy") || combined.contains("claim")) {
+            return "The SDR is being used by another application. Close SDRTrunk/GopherTrunk and refresh.";
+        }
+        if (soapy.exitCode() == -1 && hackrf.exitCode() == -1) {
+            return "SDR driver tools are missing. Install the recommended hardware package from Devices.";
+        }
+        return "No compatible SDR was detected. Open Diagnostics for cable, driver, and process checks.";
     }
 
     private static String valueAfter(String text, String marker) {
