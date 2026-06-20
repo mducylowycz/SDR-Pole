@@ -10,9 +10,9 @@ without exposing a wall of cryptic errors.
 
 > [!IMPORTANT]
 > SDR-Pole is early-stage software. Device discovery, the cross-platform UI,
-> plugin API, verified downloader, catalog, tests, and packaging are working.
-> Live IQ reception and P25 audio decoding are active roadmap work—not finished
-> features. Encrypted traffic is never decrypted.
+> plugin API, verified downloader, catalog, tests, packaging, and initial analog
+> reception are working. P25 signal/frame decoding and trunk following are active
+> roadmap work—not finished features. Encrypted traffic is never decrypted.
 
 ## Current features
 
@@ -20,12 +20,13 @@ without exposing a wall of cryptic errors.
 - Vendor-neutral SoapySDR discovery and live CF32 IQ streaming with HackRF fallback
 - Multiple-device data model for parallel receivers
 - HackRF One detection verified on macOS
-- Hardware-tested live HackRF stream, FFT waterfall, tuner controls, and NFM audio
+- Hardware-tested live HackRF stream, FFT waterfall, tuner controls, and initial NFM/WFM/AM/SSB/CW audio
 - Decoder plugin SPI using Java `ServiceLoader`
 - Staged decoder downloads with SHA-256 verification and atomic activation
 - Visible P25 Phase 1/2, DMR, and NXDN package/license status
-- Official JMBE Creator link plus local JMBE JAR validation
-- Guided home, device, system, call, spectrum, decoder, recording, map,
+- One-click official JMBE Creator download, pinned checksum verification, local build, validation, and activation
+- Manual location and local-frequency discovery foundation with explicit data provenance
+- Guided home, device, nearby, system, call, spectrum, decoder, recording, map,
   diagnostics, and settings areas
 - Cross-platform Gradle wrapper and GitHub Actions build matrix
 
@@ -48,7 +49,8 @@ Build a self-contained macOS installer:
 ./gradlew :sdr-pole-desktop:macInstaller
 ```
 
-See [architecture](docs/ARCHITECTURE.md), [technology decisions](docs/TECHNOLOGY.md),
+See [architecture](docs/ARCHITECTURE.md), [product research](docs/PRODUCT_RESEARCH.md),
+[product specification](docs/PRODUCT_SPEC.md), [technology decisions](docs/TECHNOLOGY.md),
 [roadmap](docs/ROADMAP.md), and [contributing](CONTRIBUTING.md).
 
 ## Decoder and hardware policy

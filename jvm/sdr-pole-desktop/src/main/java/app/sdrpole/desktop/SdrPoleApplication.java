@@ -4,7 +4,10 @@ import app.sdrpole.core.BuiltInDecoderCatalog;
 import app.sdrpole.core.DecoderCatalogEntry;
 import app.sdrpole.core.DeviceDiscoveryService;
 import app.sdrpole.core.DecoderLibraryManager;
+import app.sdrpole.core.DemodulationMode;
 import app.sdrpole.core.LiveNfmReceiver;
+import app.sdrpole.core.JmbeInstaller;
+import app.sdrpole.core.GeoPoint;
 import app.sdrpole.core.ReceiverConfig;
 import app.sdrpole.core.ReceiverListener;
 import app.sdrpole.core.SdrDevice;
@@ -71,7 +74,7 @@ public final class SdrPoleApplication extends Application {
 
     private Node navigation() {
         var items = FXCollections.observableArrayList(
-                "Home", "Devices", "Systems", "Live Calls", "Spectrum", "Decoders",
+                "Home", "Devices", "Nearby", "Systems", "Live Calls", "Spectrum", "Decoders",
                 "Recordings", "Map", "Diagnostics", "Settings");
         var nav = new ListView<>(items);
         nav.setPrefWidth(180);
@@ -94,6 +97,7 @@ public final class SdrPoleApplication extends Application {
         shell.setCenter(switch (page) {
             case "Home" -> home();
             case "Devices" -> devicesPage();
+            case "Nearby" -> nearbyPage();
             case "Decoders" -> decodersPage();
             case "Systems" -> featurePage("Systems", "Import SDRTrunk playlists or add a local system",
                     "Favorites", "Automatic control-channel discovery", "Talkgroup aliases", "Portable backups");
@@ -102,8 +106,8 @@ public final class SdrPoleApplication extends Application {
             case "Spectrum" -> spectrumPage();
             case "Recordings" -> featurePage("Recordings", "Search calls by system, talkgroup, radio, or time",
                     "Automatic naming", "Retention rules", "Export audio", "Call metadata");
-            case "Map" -> featurePage("Map", "Sites and radio locations without spreadsheet archaeology",
-                    "Site coverage", "Neighbor sites", "GPS metadata", "Offline maps");
+            case "Map" -> featurePage("Map & direction finding", "Known sites, observations, and bearings—without pretending one receiver can locate a transmitter",
+                    "Licensed-site map", "Signal observations", "Bearing overlays", "Coherent-array roadmap");
             case "Diagnostics" -> diagnosticsPage();
             default -> featurePage("Settings", "Sensible defaults first; advanced controls when needed",
                     "Audio output", "Storage", "Updates", "Privacy");
@@ -146,6 +150,55 @@ public final class SdrPoleApplication extends Application {
         return page(new VBox(16, title, subtitle, refresh, list, supported));
     }
 
+    private Node nearbyPage() {
+        var title = label("Find signals near me", 28, true);
+        var subtitle = muted("Start with a location, combine trustworthy directories with live RF observations, then tune a result in one click.");
+        var latitude = new TextField("41.8781");
+        latitude.setPromptText("Latitude");
+        latitude.setPrefWidth(120);
+        var longitude = new TextField("-87.6298");
+        longitude.setPromptText("Longitude");
+        longitude.setPrefWidth(120);
+        var radius = new Spinner<Integer>(1, 500, 50, 5);
+        radius.setPrefWidth(95);
+        var locationState = muted("Enter coordinates or use a future GPS provider.");
+        var apply = primaryButton("Use this location");
+        apply.setOnAction(event -> {
+            try {
+                var point = new GeoPoint(Double.parseDouble(latitude.getText().trim()), Double.parseDouble(longitude.getText().trim()));
+                locationState.setText(String.format("Location ready: %.4f, %.4f • %d km search radius", point.latitude(), point.longitude(), radius.getValue()));
+                status.setText("Local search location updated");
+            } catch (RuntimeException error) {
+                locationState.setText("Enter valid latitude (-90…90) and longitude (-180…180)");
+            }
+        });
+        var location = new HBox(10, field("Latitude", latitude), field("Longitude", longitude),
+                field("Radius (km)", radius), apply);
+        location.setAlignment(Pos.BOTTOM_LEFT);
+
+        var sources = new VBox(10,
+                sourceRow("FCC ULS open data", "Public U.S. license and site records. Useful evidence, but not a real-time list of active signals.", "Planned importer"),
+                sourceRow("RadioReference", "Optional authenticated directory. Each user supplies their own eligible account and API access.", "Connection planned"),
+                sourceRow("Live spectrum survey", "Measure energy with your SDR, group repeated signals, and compare observations over time.", "Scanner foundation"),
+                sourceRow("Files and playlists", "Import SDRTrunk playlists, CSV frequency lists, and SigMF recordings without retyping them.", "Import roadmap"));
+        var truth = muted("Location truth matters: a single HackRF can show frequency and signal strength, but cannot determine a transmitter position. Direction finding needs bearings from multiple locations or coherent multi-channel hardware such as KrakenSDR.");
+        truth.setWrapText(true);
+        return page(new VBox(16, title, subtitle, location, locationState, new Separator(),
+                label("Discovery sources", 19, true), sources, truth));
+    }
+
+    private Node sourceRow(String name, String description, String state) {
+        var copy = new VBox(4, label(name, 17, true), muted(description));
+        ((Label) copy.getChildren().get(1)).setWrapText(true);
+        HBox.setHgrow(copy, Priority.ALWAYS);
+        var badge = accent(state);
+        var row = new HBox(14, copy, badge);
+        row.setAlignment(Pos.CENTER_LEFT);
+        row.setPadding(new Insets(16));
+        row.setStyle(panelStyle());
+        return row;
+    }
+
     private Node deviceRow(SdrDevice device) {
         var state = new Label(device.available() ? "READY" : "BUSY");
         state.setStyle("-fx-text-fill: " + (device.available() ? "#63e6a5" : "#ffb86b") + "; -fx-font-weight: bold;");
@@ -170,7 +223,7 @@ public final class SdrPoleApplication extends Application {
 
     private Node spectrumPage() {
         var title = label("Live tuner", 28, true);
-        var subtitle = muted("Tune a center-channel analog FM signal. The waterfall and audio are fed directly by the selected SDR.");
+        var subtitle = muted("Explore spectrum and listen to analog signals. The waterfall and audio are fed directly by the selected SDR.");
         var deviceChoice = new ComboBox<SdrDevice>();
         deviceChoice.getItems().setAll(devices);
         deviceChoice.setPromptText(devices.isEmpty() ? "No SDR detected" : "Choose a radio");
@@ -187,6 +240,10 @@ public final class SdrPoleApplication extends Application {
         sampleRate.getSelectionModel().selectFirst();
         sampleRate.setButtonCell(rateCell());
         sampleRate.setCellFactory(list -> rateCell());
+        var mode = new ComboBox<DemodulationMode>();
+        mode.getItems().addAll(DemodulationMode.values());
+        mode.getSelectionModel().select(DemodulationMode.NFM);
+        mode.setPrefWidth(150);
 
         var automaticGain = new CheckBox("Automatic gain");
         automaticGain.setStyle("-fx-text-fill: " + TEXT + ";");
@@ -198,7 +255,8 @@ public final class SdrPoleApplication extends Application {
 
         var controls = new HBox(10,
                 field("Radio", deviceChoice), field("Frequency (MHz)", frequency),
-                field("Sample rate", sampleRate), field("Tuner gain", new VBox(2, gain, gainLabel)), automaticGain);
+                field("Mode", mode), field("Sample rate", sampleRate),
+                field("Tuner gain", new VBox(2, gain, gainLabel)), automaticGain);
         controls.setAlignment(Pos.BOTTOM_LEFT);
 
         var waterfall = new WaterfallView(900, 300);
@@ -219,7 +277,7 @@ public final class SdrPoleApplication extends Application {
                 long hz = Math.round(Double.parseDouble(frequency.getText().trim()) * 1_000_000);
                 closeReceiver();
                 activeReceiver = new LiveNfmReceiver(
-                        new ReceiverConfig(selected, hz, sampleRate.getValue(), gain.getValue(), automaticGain.isSelected(), 48_000),
+                        new ReceiverConfig(selected, hz, sampleRate.getValue(), gain.getValue(), automaticGain.isSelected(), 48_000, mode.getValue()),
                         new ReceiverListener() {
                             @Override public void onStatus(String message) { Platform.runLater(() -> receiverStatus.setText(message)); }
                             @Override public void onSpectrum(float[] powerDb) { waterfall.accept(powerDb); }
@@ -246,7 +304,7 @@ public final class SdrPoleApplication extends Application {
 
         var transport = new HBox(10, listen, stop, receiverStatus, muted("Audio level"), level);
         transport.setAlignment(Pos.CENTER_LEFT);
-        var help = muted("Tip: start with a known analog NFM frequency. P25 requires the P25 frame decoder plus JMBE-compatible voice package.");
+        var help = muted("Modes: NFM, broadcast WFM, AM, USB, LSB, and CW. P25 requires a P25 frame decoder plus a compatible voice package; JMBE alone is not a signal decoder.");
         help.setWrapText(true);
         return page(new VBox(16, title, subtitle, controls, waterfall, transport, help));
     }
@@ -275,11 +333,16 @@ public final class SdrPoleApplication extends Application {
     private Node jmbeRow(DecoderCatalogEntry decoder, VBox text) {
         var installed = libraries.jmbePath();
         if (installed.isPresent()) text.getChildren().add(accent("Installed: " + installed.get().getFileName()));
-        var download = primaryButton("Download creator");
-        download.setOnAction(event -> showJmbeNotice());
+        var progress = new ProgressBar(0);
+        progress.setPrefWidth(150);
+        progress.setVisible(false);
+        progress.setManaged(false);
+        var download = primaryButton(installed.isPresent() ? "Reinstall" : "Install JMBE");
+        download.setOnAction(event -> installJmbe(text, download, progress));
         var select = secondaryButton("Select JAR");
         select.setOnAction(event -> selectJmbe(text));
-        var actions = new HBox(8, download, select);
+        var actions = new HBox(8, progress, download, select);
+        actions.setAlignment(Pos.CENTER_RIGHT);
         var row = new HBox(14, text, actions);
         row.setAlignment(Pos.CENTER_LEFT);
         row.setPadding(new Insets(16));
@@ -287,13 +350,43 @@ public final class SdrPoleApplication extends Application {
         return row;
     }
 
-    private void showJmbeNotice() {
+    private void installJmbe(VBox text, Button download, ProgressBar progress) {
         var notice = new Alert(Alert.AlertType.CONFIRMATION);
-        notice.setTitle("JMBE voice library");
-        notice.setHeaderText("Review the upstream patent and license notice");
-        notice.setContentText("JMBE is a separate GPL-3.0 project. Its authors warn that compiled IMBE/AMBE implementations may be covered by patents in some locations. SDR-Pole does not bundle it. Continue to the official JMBE Creator download page?");
-        notice.showAndWait().filter(button -> button == ButtonType.OK)
-                .ifPresent(button -> getHostServices().showDocument("https://github.com/DSheirer/jmbe/releases/latest"));
+        notice.setTitle("Install JMBE voice library");
+        notice.setHeaderText("Download, verify, build, and activate JMBE " + JmbeInstaller.VERSION + "?");
+        notice.setContentText("JMBE is a separate GPL-3.0 project. Its authors warn that compiled IMBE/AMBE implementations may be covered by patents in some locations. You are responsible for determining whether use is lawful where you live. SDR-Pole will download the official platform-specific Creator, verify its pinned SHA-256 checksum, build the tagged source, validate the JAR, and select it immediately.\n\nJMBE converts supported voice frames; a P25/DMR frame decoder is still required.");
+        var accepted = notice.showAndWait().filter(button -> button == ButtonType.OK).isPresent();
+        if (!accepted) return;
+
+        download.setDisable(true);
+        progress.setProgress(0);
+        progress.setVisible(true);
+        progress.setManaged(true);
+        status.setText("Preparing JMBE installation…");
+        Thread.ofVirtual().start(() -> {
+            try {
+                var jar = new JmbeInstaller(libraries).install((message, amount) -> Platform.runLater(() -> {
+                    progress.setProgress(amount);
+                    status.setText(message);
+                }));
+                Platform.runLater(() -> {
+                    text.getChildren().removeIf(node -> node instanceof Label label && label.getText().startsWith("Installed:"));
+                    text.getChildren().add(accent("Installed: " + jar.getFileName()));
+                    progress.setVisible(false);
+                    progress.setManaged(false);
+                    download.setText("Reinstall");
+                    download.setDisable(false);
+                    status.setText("JMBE " + JmbeInstaller.VERSION + " installed, validated, and activated");
+                });
+            } catch (Exception error) {
+                Platform.runLater(() -> {
+                    progress.setVisible(false);
+                    progress.setManaged(false);
+                    download.setDisable(false);
+                    status.setText("JMBE installation failed: " + error.getMessage());
+                });
+            }
+        });
     }
 
     private void selectJmbe(VBox text) {

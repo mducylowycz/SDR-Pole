@@ -13,7 +13,7 @@ import java.nio.ByteOrder;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/** Live receive-only SoapySDR stream with a lightweight center-channel NFM demodulator. */
+/** Live receive-only SoapySDR stream with center-channel analog demodulation. */
 public final class LiveNfmReceiver implements AutoCloseable {
     private static final int RX = 1;
     private final ReceiverConfig config;
@@ -66,9 +66,9 @@ public final class LiveNfmReceiver implements AutoCloseable {
             var buffers = new Pointer[]{memory};
             var flags = new IntByReference();
             var time = new LongByReference();
-            var demod = new NfmDemodulator(config.sampleRate(), config.audioSampleRate());
+            var demod = new AnalogDemodulator(config.sampleRate(), config.audioSampleRate(), config.mode());
             int spectrumCountdown = 0;
-            listener.onStatus("Listening at " + formatFrequency(config.frequencyHz()));
+            listener.onStatus(config.mode() + " at " + formatFrequency(config.frequencyHz()));
 
             while (running.get()) {
                 int read = nativeApi.SoapySDRDevice_readStream(device, stream, buffers, elements, flags, time, 250_000);
@@ -137,20 +137,24 @@ public final class LiveNfmReceiver implements AutoCloseable {
 
     private static String formatFrequency(long hz) { return String.format("%.5f MHz", hz / 1_000_000.0); }
 
-    private static final class NfmDemodulator {
+    private static final class AnalogDemodulator {
         private final double inputRate;
         private final double outputRate;
+        private final DemodulationMode mode;
         private final double deemphasisAlpha;
-        private double phase;
+        private double outputPhase;
+        private double bfoPhase;
         private float previousI = 1;
         private float previousQ;
         private double filtered;
+        private double dc;
         private double rms;
 
-        NfmDemodulator(double inputRate, double outputRate) {
+        AnalogDemodulator(double inputRate, double outputRate, DemodulationMode mode) {
             this.inputRate = inputRate;
             this.outputRate = outputRate;
-            this.deemphasisAlpha = Math.exp(-1.0 / (inputRate * 75e-6));
+            this.mode = mode;
+            this.deemphasisAlpha = Math.exp(-1.0 / (inputRate * (mode == DemodulationMode.WFM ? 75e-6 : 50e-6)));
         }
 
         byte[] accept(float[] iq, int count) {
@@ -160,13 +164,30 @@ public final class LiveNfmReceiver implements AutoCloseable {
             int produced = 0;
             for (int n = 0; n < count; n++) {
                 float i = iq[n * 2], q = iq[n * 2 + 1];
-                double discriminator = Math.atan2(previousI * q - previousQ * i, previousI * i + previousQ * q);
+                double sample;
+                if (mode == DemodulationMode.NFM || mode == DemodulationMode.WFM) {
+                    double discriminator = Math.atan2(previousI * q - previousQ * i, previousI * i + previousQ * q);
+                    double deviation = mode == DemodulationMode.WFM ? 75_000 : 5_000;
+                    sample = discriminator * inputRate / (2 * Math.PI * deviation);
+                    filtered = deemphasisAlpha * filtered + (1 - deemphasisAlpha) * sample;
+                    sample = filtered;
+                } else if (mode == DemodulationMode.AM) {
+                    var envelope = Math.hypot(i, q);
+                    dc = dc * 0.9999 + envelope * 0.0001;
+                    sample = (envelope - dc) * 3.0;
+                } else {
+                    double tone = mode == DemodulationMode.CW ? 700 : 1_500;
+                    double direction = mode == DemodulationMode.LSB ? -1 : 1;
+                    sample = i * Math.cos(bfoPhase) - q * Math.sin(bfoPhase) * direction;
+                    bfoPhase += direction * 2 * Math.PI * tone / inputRate;
+                    if (bfoPhase > Math.PI) bfoPhase -= 2 * Math.PI;
+                    if (bfoPhase < -Math.PI) bfoPhase += 2 * Math.PI;
+                }
                 previousI = i; previousQ = q;
-                filtered = deemphasisAlpha * filtered + (1 - deemphasisAlpha) * discriminator;
-                phase += outputRate;
-                if (phase >= inputRate) {
-                    phase -= inputRate;
-                    var sample = Math.max(-1, Math.min(1, filtered * 3.5));
+                outputPhase += outputRate;
+                if (outputPhase >= inputRate) {
+                    outputPhase -= inputRate;
+                    sample = Math.max(-1, Math.min(1, sample));
                     out.putShort((short) (sample * 32767));
                     sumSquares += sample * sample;
                     produced++;

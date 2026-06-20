@@ -19,7 +19,8 @@ Checked items are implemented in the repository, not merely mocked in the UI.
 - [x] FFT spectrum and waterfall
 - [ ] Channelizer, resampler, squelch, and automatic gain
 - [x] Initial live center-channel NFM audio output
-- [ ] Production channel filters, resampler, squelch, AM, and selectable audio output
+- [x] Initial center-channel NFM, WFM, AM, USB, LSB, and CW demodulation
+- [ ] Production channel filters, resampler, squelch, stereo WFM, and selectable audio output
 - [ ] Recording and replay fixtures for deterministic tests
 
 ## Digital voice and trunking
@@ -27,7 +28,7 @@ Checked items are implemented in the repository, not merely mocked in the UI.
 - [ ] P25 Phase 1 C4FM/CQPSK symbol and frame decoding
 - [ ] P25 control-channel messages and system/site discovery
 - [ ] P25 talkgroup following across one or more tuners
-- [x] JMBE discovery, official download path, patent notice, and JAR validation
+- [x] One-click JMBE Creator download, checksum verification, build, validation, and activation
 - [ ] Connect validated JMBE audio to decoded IMBE/AMBE frames
 - [ ] P25 Phase 2 TDMA traffic channels
 - [ ] AMBE+2 vocoder package with explicit terms
@@ -36,6 +37,8 @@ Checked items are implemented in the repository, not merely mocked in the UI.
 
 ## Public-safety scanner experience
 
+- [x] Location model and honest separation of license records, RF observations, and direction finding
+- [ ] FCC ULS regional importer, provenance, cache age, and update workflow
 - [ ] RadioReference-assisted import using the user's authorized account
 - [ ] SDRTrunk playlist migration
 - [ ] Automatic tuner allocation by bandwidth and priority
