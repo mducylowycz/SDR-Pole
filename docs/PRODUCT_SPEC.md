@@ -4,6 +4,16 @@
 
 SDR-Pole is one approachable, cross-platform application for trunked-radio listening and general SDR exploration. A beginner should reach first audio without understanding gain stages, channelizers, playlists, or Java libraries; an expert should still be able to inspect and control them.
 
+## Usability contract
+
+- The Home screen begins with the user's goal, not the application's object model.
+- Simple mode shows frequency, mode, radio, a few recognizable examples, and one Listen button. Lab mode reveals sample rate, gain, and future DSP routing.
+- Every readiness label is computed from current state. Planned features are never painted as operational.
+- Hardware selection and safe defaults flow forward; users do not repeatedly select the same radio.
+- Error messages state what happened and the next repair action without exposing native error walls.
+- Location and radio serial numbers stay out of copied diagnostics by default.
+- Settings that people reasonably expect to persist—mode, last frequency, complexity level, and manually entered location—persist locally.
+
 ## Primary experiences
 
 ### Scanner

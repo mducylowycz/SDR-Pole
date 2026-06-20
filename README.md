@@ -26,6 +26,9 @@ without exposing a wall of cryptic errors.
 - Visible P25 Phase 1/2, DMR, and NXDN package/license status
 - One-click official JMBE Creator download, pinned checksum verification, local build, validation, and activation
 - Manual location and local-frequency discovery foundation with explicit data provenance
+- Goal-first Quick Start with live hardware/audio/decoder readiness
+- Persistent Simple and Lab modes with common analog examples and remembered tuning
+- Privacy-redacted support report copied directly from Diagnostics
 - Guided home, device, nearby, system, call, spectrum, decoder, recording, map,
   diagnostics, and settings areas
 - Cross-platform Gradle wrapper and GitHub Actions build matrix

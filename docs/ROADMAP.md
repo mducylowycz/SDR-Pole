@@ -12,6 +12,16 @@ Checked items are implemented in the repository, not merely mocked in the UI.
 - [x] Windows, macOS, and Linux CI build verification
 - [ ] Signed release automation and auto-updater
 
+## Beginner experience
+
+- [x] Goal-first Home screen with live readiness state
+- [x] Simple/Lab progressive disclosure with persistent choice
+- [x] Quick analog presets and remembered frequency/mode
+- [x] Radio selection carried from Devices into the tuner
+- [x] Privacy-redacted support report clipboard action
+- [ ] First-run antenna and local-frequency walkthrough
+- [ ] Integrated repair actions for drivers, audio devices, and occupied radios
+
 ## Receiver engine
 
 - [x] SoapySDR native streaming bridge
