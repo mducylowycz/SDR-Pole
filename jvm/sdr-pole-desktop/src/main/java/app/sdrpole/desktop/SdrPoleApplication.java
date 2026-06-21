@@ -23,6 +23,8 @@ import app.sdrpole.core.p25.P25SystemStore;
 import app.sdrpole.core.p25.P25RuntimeConfigurator;
 import app.sdrpole.core.p25.P25RuntimeManager;
 import app.sdrpole.core.p25.P25CsvImporter;
+import app.sdrpole.core.p25.P25Talkgroup;
+import app.sdrpole.core.p25.P25TalkgroupStore;
 import app.sdrpole.core.directory.RadioReferenceCredentials;
 import app.sdrpole.core.directory.RadioReferenceDirectoryClient;
 import app.sdrpole.core.SdrDevice;
@@ -63,6 +65,7 @@ public final class SdrPoleApplication extends Application {
     private final DecoderLibraryManager libraries = new DecoderLibraryManager();
     private final Preferences preferences = Preferences.userNodeForPackage(SdrPoleApplication.class);
     private final P25SystemStore p25SystemStore = new P25SystemStore();
+    private final P25TalkgroupStore p25TalkgroupStore = new P25TalkgroupStore();
     private final P25EngineManager p25Engine = new P25EngineManager();
     private final P25RuntimeConfigurator p25Configurator = new P25RuntimeConfigurator();
     private final P25RuntimeManager p25Runtime = new P25RuntimeManager();
@@ -77,6 +80,7 @@ public final class SdrPoleApplication extends Application {
     private boolean advancedMode;
     private SdrDevice preferredDevice;
     private final List<P25SystemConfig> configuredSystems = new ArrayList<>();
+    private final List<P25Talkgroup> configuredTalkgroups = new ArrayList<>();
     private SiteMapView siteMap;
     private String radioReferencePassword = "";
 
@@ -85,6 +89,8 @@ public final class SdrPoleApplication extends Application {
         advancedMode = preferences.getBoolean("advancedMode", false);
         try { configuredSystems.addAll(p25SystemStore.load()); }
         catch (Exception error) { status.setText("Saved P25 sites could not be loaded: " + error.getMessage()); }
+        try { configuredTalkgroups.addAll(p25TalkgroupStore.load()); }
+        catch (Exception error) { status.setText("Saved P25 talkgroups could not be loaded: " + error.getMessage()); }
         shell.setStyle("-fx-background-color: " + BG + ";");
         shell.setTop(topBar());
         shell.setLeft(navigation());
@@ -227,7 +233,10 @@ public final class SdrPoleApplication extends Application {
         if (updated == 0) return "Not connected yet.";
         var age = java.time.Duration.between(java.time.Instant.ofEpochMilli(updated), java.time.Instant.now());
         var area = preferences.get("directory.rr.area", "selected area");
-        return age.toDays() == 0 ? "Updated today for " + area + "." : "Updated " + age.toDays() + " day(s) ago for " + area + ".";
+        var count = preferences.getInt("directory.rr.talkgroups", 0);
+        var suffix = count > 0 ? " • " + count + " named talkgroups." : ".";
+        return age.toDays() == 0 ? "Updated today for " + area + suffix
+                : "Updated " + age.toDays() + " day(s) ago for " + area + suffix;
     }
 
     private boolean directoryRefreshNeeded(GeoPoint point) {
@@ -294,18 +303,26 @@ public final class SdrPoleApplication extends Application {
                                     && existing.siteName().equalsIgnoreCase(site.siteName()));
                             configuredSystems.add(site);
                         }
+                        var updatedSystems = update.talkgroups().stream().map(P25Talkgroup::systemName)
+                                .map(String::toLowerCase).collect(java.util.stream.Collectors.toSet());
+                        configuredTalkgroups.removeIf(item -> updatedSystems.contains(item.systemName().toLowerCase()));
+                        configuredTalkgroups.addAll(update.talkgroups());
                         p25SystemStore.save(configuredSystems);
+                        p25TalkgroupStore.save(configuredTalkgroups);
                         preferences.putLong("directory.rr.updated", update.retrievedAt().toEpochMilli());
                         preferences.put("directory.rr.area", update.areaLabel());
+                        preferences.putInt("directory.rr.talkgroups", update.talkgroups().size());
                         preferences.putDouble("directory.rr.latitude", location.latitude());
                         preferences.putDouble("directory.rr.longitude", location.longitude());
                         audit.record("directory", "RadioReference update", "success",
-                                Map.of("siteCount", update.p25Sites().size(), "provider", update.provider()));
-                        status.setText("Loaded " + update.p25Sites().size() + " verified P25 site(s) for " + update.areaLabel());
+                                Map.of("siteCount", update.p25Sites().size(), "talkgroupCount", update.talkgroups().size(), "provider", update.provider()));
+                        status.setText("Loaded " + update.p25Sites().size() + " P25 site(s) and "
+                                + update.talkgroups().size() + " talkgroups for " + update.areaLabel());
                         show("Trunking Workstation");
                         if (showCompletion) {
                             var alert = new Alert(Alert.AlertType.INFORMATION,
-                                    "Loaded " + update.p25Sites().size() + " P25 site(s). SDR-Pole will keep this cache and refresh it when you reconnect.", ButtonType.OK);
+                                    "Loaded " + update.p25Sites().size() + " P25 site(s) and " + update.talkgroups().size()
+                                            + " named talkgroups. SDR-Pole will keep this cache and refresh it when you reconnect.", ButtonType.OK);
                             alert.setTitle("Local radio data is ready");
                             alert.setHeaderText(update.areaLabel()); alert.initOwner(shell.getScene().getWindow()); alert.showAndWait();
                         }
@@ -326,7 +343,7 @@ public final class SdrPoleApplication extends Application {
 
     private void autoConfigureP25() {
         try {
-            var plan = p25Configurator.create(devices, configuredSystems, savedLocation().orElse(null));
+            var plan = p25Configurator.create(devices, configuredSystems, savedLocation().orElse(null), configuredTalkgroups);
             var engine = p25Engine.enginePath().orElseThrow(() ->
                     new IllegalStateException("Install the P25 engine from Decoder packages first"));
             p25Runtime.start(engine, plan);
@@ -342,6 +359,7 @@ public final class SdrPoleApplication extends Application {
                     .append("System: ").append(plan.system().systemName()).append(" / ").append(plan.system().siteName()).append('\n')
                     .append("Radio: ").append(friendlyDeviceName(plan.controlDevice())).append('\n')
                     .append("Control channels: ").append(plan.system().controlFrequenciesHz().size()).append('\n')
+                    .append("Named talkgroups: ").append(plan.talkgroupCount()).append('\n')
                     .append("Automatic frequency correction: on\n")
                     .append("Unsafe RF power and bias tee: off\n\n");
             plan.notes().forEach(note -> detail.append("✓ ").append(note).append('\n'));

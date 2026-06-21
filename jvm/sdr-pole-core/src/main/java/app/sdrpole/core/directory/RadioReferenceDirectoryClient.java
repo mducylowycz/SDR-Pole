@@ -2,6 +2,7 @@ package app.sdrpole.core.directory;
 
 import app.sdrpole.core.GeoPoint;
 import app.sdrpole.core.p25.P25SystemConfig;
+import app.sdrpole.core.p25.P25Talkgroup;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.w3c.dom.Document;
@@ -71,6 +72,7 @@ public final class RadioReferenceDirectoryClient {
         for (var record : records(types, "sTypeDescr")) typeNames.put(integer(record, "sType"), text(record, "sTypeDescr"));
 
         var sites = new ArrayList<P25SystemConfig>();
+        var talkgroups = new ArrayList<P25Talkgroup>();
         for (var entry : systems.entrySet()) {
             var details = soap("getTrsDetails", Map.of("sid", Integer.toString(entry.getKey())), credentials);
             var detailRecords = records(details, "sType");
@@ -79,10 +81,13 @@ public final class RadioReferenceDirectoryClient {
             if (!type.toLowerCase(Locale.ROOT).contains("project 25") && !type.toLowerCase(Locale.ROOT).contains("p25")) continue;
             var siteDocument = soap("getTrsSites", Map.of("sid", Integer.toString(entry.getKey())), credentials);
             sites.addAll(parseSites(siteDocument, entry.getValue(), location));
+            var talkgroupDocument = soap("getTrsTalkgroups", Map.of(
+                    "sid", Integer.toString(entry.getKey()), "tgCid", "0", "tgTag", "0", "tgDec", "0"), credentials);
+            talkgroups.addAll(parseTalkgroups(talkgroupDocument, entry.getValue()));
         }
         sites.sort(java.util.Comparator.comparingDouble(site -> site.location() == null
                 ? Double.MAX_VALUE : location.distanceKmTo(site.location())));
-        return new DirectoryUpdate("RadioReference", area.countyName() + ", " + area.stateCode(), Instant.now(), sites);
+        return new DirectoryUpdate("RadioReference", area.countyName() + ", " + area.stateCode(), Instant.now(), sites, talkgroups);
     }
 
     private Area censusArea(GeoPoint point) throws IOException, InterruptedException {
@@ -158,6 +163,19 @@ public final class RadioReferenceDirectoryClient {
                     simulcast ? P25SystemConfig.Modulation.LSM_SIMULCAST : P25SystemConfig.Modulation.C4FM, 4, location));
         }
         return result;
+    }
+
+    static List<P25Talkgroup> parseTalkgroups(Document document, String systemName) {
+        var result = new ArrayList<P25Talkgroup>();
+        for (var record : records(document, "tgDec")) {
+            int id = integer(record, "tgDec");
+            if (id < 0 || id > 65_535) continue;
+            result.add(new P25Talkgroup(systemName, id, text(record, "tgAlpha"), text(record, "tgDescr"),
+                    text(record, "tgMode"), Math.max(0, Math.min(2, integer(record, "enc")))));
+        }
+        return result.stream().collect(java.util.stream.Collectors.collectingAndThen(
+                java.util.stream.Collectors.toMap(P25Talkgroup::id, item -> item, (left, right) -> left, LinkedHashMap::new),
+                map -> List.copyOf(map.values())));
     }
 
     static Document parse(String xml) throws IOException {

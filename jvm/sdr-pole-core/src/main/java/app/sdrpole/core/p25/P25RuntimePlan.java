@@ -8,7 +8,7 @@ import java.util.List;
 /** A complete, user-reviewable runtime plan produced without exposing engine configuration. */
 public record P25RuntimePlan(P25SystemConfig system, SdrDevice controlDevice,
                              List<SdrDevice> voiceDevices, long centerFrequencyHz,
-                             int sampleRate, int voiceTaps, Path configFile,
+                             int sampleRate, int voiceTaps, int talkgroupCount, Path configFile,
                              List<String> notes) {
     public P25RuntimePlan {
         voiceDevices = List.copyOf(voiceDevices);

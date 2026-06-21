@@ -32,6 +32,7 @@ without exposing a wall of cryptic errors.
 - Automatic nearest-site selection, simulcast/CQPSK settings, multi-radio role assignment, safe gain, AFC, and one-radio virtual voice tuners
 - Flexible CSV import for P25 site and control-channel directory exports
 - Location-driven RadioReference v18 network updates using official Census county resolution, with nearest-site ordering and a persistent offline cache
+- Automatic P25 talkgroup names, descriptions, and encryption status, persisted offline and exported directly to the P25 runtime
 - Manual location and local-frequency discovery foundation with explicit data provenance
 - Goal-first Quick Start with live hardware/audio/decoder readiness
 - Persistent Simple and Lab modes with common analog examples and remembered tuning

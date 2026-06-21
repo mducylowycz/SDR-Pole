@@ -19,17 +19,24 @@ class P25RuntimeConfiguratorTest {
         var hackrf = new SdrDevice("hackrf:1", "hackrf", "HackRF One", "abc123", true, Map.of());
         var far = site("Statewide", "Far", 851_100_000L, new GeoPoint(35, -90), false);
         var near = site("County", "Simulcast", 852_125_000L, new GeoPoint(41, -87), true);
-        var plan = new P25RuntimeConfigurator(temp).create(List.of(hackrf), List.of(far, near), new GeoPoint(41.01, -87.01));
+        var plan = new P25RuntimeConfigurator(temp).create(List.of(hackrf), List.of(far, near), new GeoPoint(41.01, -87.01),
+                List.of(new P25Talkgroup("County", 101, "Fire Dispatch", "County Fire", "D", 0),
+                        new P25Talkgroup("County", 202, "Police Tac", "Encrypted", "DE", 2)));
 
         assertEquals(near, plan.system());
         assertEquals(8_000_000, plan.sampleRate());
         assertEquals(4, plan.voiceTaps());
+        assertEquals(2, plan.talkgroupCount());
         var yaml = Files.readString(plan.configFile());
         assertTrue(yaml.contains("http_addr: \"127.0.0.1:18080\""));
         assertTrue(yaml.contains("p25_phase1_demod_mode: \"cqpsk\""));
         assertTrue(yaml.contains("autotune: true"));
         assertTrue(yaml.contains("skip_encrypted: true"));
+        assertTrue(yaml.contains("talkgroup_file:"));
         assertFalse(yaml.contains("latitude"));
+        var aliases = Files.readString(temp.resolve("config/talkgroups-county.csv"));
+        assertTrue(aliases.contains("Fire Dispatch"));
+        assertTrue(aliases.contains("202,\"Police Tac\",\"Encrypted\",\"DE\",\"County\",0,true,false"));
     }
 
     @Test void refusesToGuessWhenRequiredInputsAreMissing() {

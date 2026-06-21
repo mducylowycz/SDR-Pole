@@ -42,6 +42,7 @@ Checked items are implemented in the repository, not merely mocked in the UI.
 - [ ] FCC ULS bulk download, spatial join, and dated local index
 - [x] Authenticated RadioReference v18 adapter (requires application key and user premium account)
 - [x] Census coordinate-to-county lookup, statewide/county system merge, nearest-site ranking, and 24-hour cache refresh policy
+- [x] Automatic P25 talkgroup label/encryption synchronization, offline persistence, and runtime alias export
 
 ## Receiver engine
 

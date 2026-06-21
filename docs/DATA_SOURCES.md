@@ -26,10 +26,13 @@ RadioReference's SOAP service supplies conventional and trunked-system data.
 The developer needs an application key and each end user needs an active
 premium subscription. SDR-Pole uses the official v18 service to resolve county
 and statewide P25 systems, site coordinates, primary/alternate control channels,
-modulation and TDMA-control metadata. U.S. coordinates are matched to a county
-through the official Census Geocoder. Results are cached locally, ranked by
-distance, and refreshed after 24 hours or a move of 25 km. SDR-Pole does not
-scrape pages or substitute guessed frequencies when credentials are unavailable.
+modulation, TDMA-control metadata, and talkgroup names, descriptions, and
+encryption status. U.S. coordinates are matched to a county through the official
+Census Geocoder. Results are cached locally, ranked by distance, and refreshed
+after 24 hours or a move of 25 km. Fully encrypted talkgroups are locked out in
+the generated runtime profile; SDR-Pole does not attempt to decrypt them. It also
+does not scrape pages or substitute guessed frequencies when credentials are
+unavailable.
 
 Source: [RadioReference API documentation](https://wiki.radioreference.com/index.php/API).
 Location source: [U.S. Census Geocoder](https://geocoding.geo.census.gov/geocoder/).

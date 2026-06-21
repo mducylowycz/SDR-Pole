@@ -26,6 +26,11 @@ public final class P25RuntimeConfigurator {
 
     public P25RuntimePlan create(List<SdrDevice> devices, List<P25SystemConfig> systems,
                                  GeoPoint listeningLocation) throws IOException {
+        return create(devices, systems, listeningLocation, List.of());
+    }
+
+    public P25RuntimePlan create(List<SdrDevice> devices, List<P25SystemConfig> systems,
+                                 GeoPoint listeningLocation, List<P25Talkgroup> allTalkgroups) throws IOException {
         if (devices == null || devices.stream().noneMatch(SdrDevice::available))
             throw new IllegalStateException("Connect an SDR and press Refresh first");
         if (systems == null || systems.isEmpty())
@@ -39,13 +44,18 @@ public final class P25RuntimeConfigurator {
         long center = system.controlFrequenciesHz().stream().mapToLong(Long::longValue).sum()
                 / system.controlFrequenciesHz().size();
         int voiceTaps = Math.min(system.maxTrafficChannels(), control.driver().toLowerCase(Locale.ROOT).contains("hackrf") ? 4 : 2);
+        var talkgroups = allTalkgroups.stream().filter(item -> item.systemName().equalsIgnoreCase(system.systemName())).toList();
 
         Files.createDirectories(runtimeDirectory.resolve("data"));
         Files.createDirectories(runtimeDirectory.resolve("recordings"));
         Files.createDirectories(runtimeDirectory.resolve("logs"));
+        Files.createDirectories(runtimeDirectory.resolve("config"));
+        var talkgroupFile = runtimeDirectory.resolve("config/talkgroups-" + slug(system.systemName()) + ".csv");
+        Files.writeString(talkgroupFile, talkgroupCsv(talkgroups), StandardCharsets.UTF_8);
         var config = runtimeDirectory.resolve("config.yaml");
         var staging = Files.createTempFile(runtimeDirectory, ".config-", ".yaml");
-        Files.writeString(staging, yaml(system, available, control, center, sampleRate, voiceTaps), StandardCharsets.UTF_8);
+        Files.writeString(staging, yaml(system, available, control, center, sampleRate, voiceTaps,
+                "config/" + talkgroupFile.getFileName()), StandardCharsets.UTF_8);
         try {
             Files.move(staging, config, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
         } finally { Files.deleteIfExists(staging); }
@@ -58,7 +68,8 @@ public final class P25RuntimeConfigurator {
                 ? "One-radio mode: calls inside the sampled bandwidth use up to " + voiceTaps + " virtual voice tuners"
                 : voice.size() + " additional radio(s) assigned to traffic channels");
         notes.add("Engine API is restricted to this computer (127.0.0.1)");
-        return new P25RuntimePlan(system, control, voice, center, sampleRate, voiceTaps, config, notes);
+        if (!talkgroups.isEmpty()) notes.add(talkgroups.size() + " talkgroup names loaded; fully encrypted groups are locked out");
+        return new P25RuntimePlan(system, control, voice, center, sampleRate, voiceTaps, talkgroups.size(), config, notes);
     }
 
     static P25SystemConfig chooseSystem(List<P25SystemConfig> systems, GeoPoint location) {
@@ -82,7 +93,7 @@ public final class P25RuntimeConfigurator {
     }
 
     private static String yaml(P25SystemConfig system, List<SdrDevice> devices, SdrDevice control,
-                               long center, int sampleRate, int voiceTaps) {
+                               long center, int sampleRate, int voiceTaps, String talkgroupFile) {
         var id = slug(system.systemName() + "-" + system.siteName());
         var out = new StringBuilder("""
                 log:
@@ -141,9 +152,23 @@ public final class P25RuntimeConfigurator {
         for (long frequency : system.controlFrequenciesHz()) out.append("        - ").append(frequency).append('\n');
         out.append("      p25_phase1_demod_mode: ")
                 .append(system.modulation() == P25SystemConfig.Modulation.LSM_SIMULCAST ? "\"cqpsk\"" : "\"c4fm\"").append('\n');
+        out.append("      talkgroup_file: ").append(quote(talkgroupFile)).append('\n');
         out.append("      encrypted_calls:\n        mode: ignore\n");
         return out.toString();
     }
+
+    private static String talkgroupCsv(List<P25Talkgroup> talkgroups) {
+        var out = new StringBuilder("Decimal,Alias,Description,Tag,Group,Priority,Lockout,Watch\n");
+        for (var talkgroup : talkgroups) {
+            out.append(talkgroup.id()).append(',').append(csv(talkgroup.alias())).append(',')
+                    .append(csv(talkgroup.description())).append(',').append(csv(talkgroup.category())).append(',')
+                    .append(csv(talkgroup.systemName())).append(",0,")
+                    .append(talkgroup.fullyEncrypted()).append(",false\n");
+        }
+        return out.toString();
+    }
+
+    private static String csv(String value) { return "\"" + value.replace("\"", "\"\"").replace("\r", " ").replace("\n", " ") + "\""; }
 
     private static String slug(String value) {
         var slug = value.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "-").replaceAll("(^-|-$)", "");

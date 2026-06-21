@@ -32,4 +32,18 @@ class RadioReferenceDirectoryClientTest {
         assertThrows(Exception.class, () -> RadioReferenceDirectoryClient.parse(
                 "<!DOCTYPE x [<!ENTITY e SYSTEM 'file:///etc/passwd'>]><x>&e;</x>"));
     }
+
+    @Test void parsesTalkgroupLabelsAndEncryptionWithoutGuessing() throws Exception {
+        var xml = """
+                <Envelope><Body>
+                <item><tgDec>101</tgDec><tgAlpha>Fire Dispatch</tgAlpha><tgDescr>County Fire Dispatch</tgDescr><tgMode>D</tgMode><enc>0</enc></item>
+                <item><tgDec>202</tgDec><tgAlpha>Police Tac</tgAlpha><tgDescr>Encrypted tactical</tgDescr><tgMode>DE</tgMode><enc>2</enc></item>
+                </Body></Envelope>
+                """;
+        var groups = RadioReferenceDirectoryClient.parseTalkgroups(
+                RadioReferenceDirectoryClient.parse(xml), "County Public Safety");
+        assertEquals(2, groups.size());
+        assertEquals("Fire Dispatch", groups.getFirst().alias());
+        assertTrue(groups.get(1).fullyEncrypted());
+    }
 }
