@@ -39,6 +39,10 @@ small event-emitting controls; the receiver owns hardware/audio lifetime. New
 features must not accumulate in the application shell as a god object or use
 cross-cutting mixins.
 
+The goal workspaces are also independent views: `TrunkingWorkstationPane` and
+`ScannerPane` emit user intent through callbacks. Frequency ranges and scan
+scheduling live in `sdr-pole-core`; neither view owns hardware or persistence.
+
 ## Ease-of-use rules
 
 1. Never ask users for sample rate, gain, drivers, or control channels before

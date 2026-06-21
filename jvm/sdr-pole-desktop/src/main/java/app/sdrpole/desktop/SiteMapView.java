@@ -24,6 +24,7 @@ import java.util.ArrayList;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 
 /** Human-driven slippy map that fetches only visible OSM tiles and caches them for at least seven days. */
 final class SiteMapView extends Pane {
@@ -41,6 +42,9 @@ final class SiteMapView extends Pane {
     private int zoom = 4;
     private double dragX;
     private double dragY;
+    private boolean dragged;
+    private GeoPoint selectedLocation;
+    private Consumer<GeoPoint> locationHandler = ignored -> {};
 
     SiteMapView() {
         getChildren().add(canvas);
@@ -48,10 +52,17 @@ final class SiteMapView extends Pane {
         setPrefHeight(520);
         widthProperty().addListener((o, old, value) -> resize());
         heightProperty().addListener((o, old, value) -> resize());
-        addEventHandler(MouseEvent.MOUSE_PRESSED, event -> { dragX = event.getX(); dragY = event.getY(); });
+        addEventHandler(MouseEvent.MOUSE_PRESSED, event -> { dragX = event.getX(); dragY = event.getY(); dragged = false; });
         addEventHandler(MouseEvent.MOUSE_DRAGGED, event -> {
+            dragged = true;
             pan(dragX - event.getX(), dragY - event.getY());
             dragX = event.getX(); dragY = event.getY();
+        });
+        setOnMouseClicked(event -> {
+            if (dragged) return;
+            selectedLocation = pointAt(event.getX(), event.getY());
+            centerOn(selectedLocation, Math.max(zoom, 9));
+            locationHandler.accept(selectedLocation);
         });
         setOnScroll(event -> {
             int next = Math.max(2, Math.min(18, zoom + (event.getDeltaY() > 0 ? 1 : -1)));
@@ -74,6 +85,7 @@ final class SiteMapView extends Pane {
     }
 
     GeoPoint center() { return new GeoPoint(centerLat, centerLon); }
+    void setOnLocationSelected(Consumer<GeoPoint> handler) { locationHandler = handler == null ? ignored -> {} : handler; }
 
     private void resize() {
         canvas.setWidth(getWidth());
@@ -118,11 +130,27 @@ final class SiteMapView extends Pane {
             }
         }
         drawMarkers(graphics, left, top, worldSize);
+        if (selectedLocation != null) drawSelection(graphics, left, top, worldSize);
         graphics.setFill(Color.rgb(5, 12, 16, .82));
         graphics.fillRoundRect(width - 205, height - 28, 197, 22, 6, 6);
         graphics.setFill(Color.WHITE);
         graphics.setFont(Font.font(11));
         graphics.fillText("© OpenStreetMap contributors", width - 198, height - 13);
+    }
+
+    private void drawSelection(javafx.scene.canvas.GraphicsContext graphics, double left, double top, double worldSize) {
+        double x = lonToWorld(selectedLocation.longitude(), worldSize) - left;
+        double y = latToWorld(selectedLocation.latitude(), worldSize) - top;
+        graphics.setStroke(Color.web("#ffce54")); graphics.setLineWidth(3);
+        graphics.strokeOval(x - 11, y - 11, 22, 22);
+        graphics.strokeLine(x - 16, y, x + 16, y); graphics.strokeLine(x, y - 16, x, y + 16);
+    }
+
+    private GeoPoint pointAt(double screenX, double screenY) {
+        double worldSize = TILE * Math.scalb(1.0, zoom);
+        double left = lonToWorld(centerLon, worldSize) - canvas.getWidth() / 2;
+        double top = latToWorld(centerLat, worldSize) - canvas.getHeight() / 2;
+        return new GeoPoint(worldToLat(top + screenY, worldSize), worldToLon(left + screenX, worldSize));
     }
 
     private void drawMarkers(javafx.scene.canvas.GraphicsContext graphics, double left, double top, double worldSize) {

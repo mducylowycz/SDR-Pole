@@ -9,10 +9,14 @@ import app.sdrpole.core.LiveNfmReceiver;
 import app.sdrpole.core.JmbeInstaller;
 import app.sdrpole.core.GeoPoint;
 import app.sdrpole.core.FrequencyPreset;
+import app.sdrpole.core.FrequencyBand;
+import app.sdrpole.core.FrequencyBandCatalog;
 import app.sdrpole.core.ReceiverConfig;
 import app.sdrpole.core.ReceiverListener;
 import app.sdrpole.core.RfFrontendSettings;
 import app.sdrpole.core.P25EngineManager;
+import app.sdrpole.core.ScanPlan;
+import app.sdrpole.core.ScanRange;
 import app.sdrpole.core.p25.P25SystemConfig;
 import app.sdrpole.core.p25.P25SystemStore;
 import app.sdrpole.core.SdrDevice;
@@ -35,6 +39,7 @@ import java.util.List;
 import java.util.ArrayList;
 import java.util.prefs.Preferences;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicBoolean;
 import javax.sound.sampled.AudioFormat;
 import javax.sound.sampled.AudioSystem;
 import javax.sound.sampled.DataLine;
@@ -110,8 +115,8 @@ public final class SdrPoleApplication extends Application {
 
     private Node navigation() {
         var items = FXCollections.observableArrayList(
-                "Home", "Devices", "Nearby", "Systems", "Live Calls", "Spectrum", "Decoders",
-                "Recordings", "Map", "Diagnostics", "Settings");
+                "Home", "Trunking Workstation", "Scanner", "Frequency Library",
+                "Calls & Recordings", "Setup & Diagnostics");
         navigation = new ListView<>(items);
         var nav = navigation;
         nav.setPrefWidth(180);
@@ -140,6 +145,11 @@ public final class SdrPoleApplication extends Application {
         currentPage = page;
         shell.setCenter(switch (page) {
             case "Home" -> home();
+            case "Trunking Workstation" -> trunkingWorkstationPage();
+            case "Scanner" -> scannerPage();
+            case "Frequency Library" -> frequencyLibraryPage();
+            case "Calls & Recordings" -> listeningHealthPage();
+            case "Setup & Diagnostics" -> setupPage();
             case "Devices" -> devicesPage();
             case "Nearby" -> nearbyPage();
             case "Decoders" -> decodersPage();
@@ -156,18 +166,17 @@ public final class SdrPoleApplication extends Application {
     }
 
     private Node home() {
-        var title = label("What would you like to hear?", 30, true);
-        var subtitle = muted("Choose a goal. SDR-Pole will fill in safe defaults and only show the controls you need.");
+        var title = label("Choose one place to start", 30, true);
+        var subtitle = muted("Connect a radio, pick your location, and let SDR-Pole build the listening setup—no blank frequency exam.");
 
-        var quick = actionCard("Explore a frequency", "Hear analog AM, FM, sideband, or CW with a live waterfall.",
-                devices.isEmpty() ? "Connect a radio first" : "Ready with " + friendlyDeviceName(devices.getFirst()), "Open quick tuner", () -> {
+        var quick = actionCard("Scan frequencies near me", "Choose named ranges such as airband, weather, marine, amateur, or public safety.",
+                devices.isEmpty() ? "Radio setup is included" : "Ready with " + friendlyDeviceName(devices.getFirst()), "Open Scanner", () -> {
                     preferredDevice = devices.isEmpty() ? null : devices.getFirst();
-                    navigateTo("Spectrum");
+                    navigateTo("Scanner");
                 });
-        ((Button) quick.getChildren().getLast()).setDisable(devices.isEmpty());
-        var trunked = actionCard("Listen to a trunked system", "Guided site, control-channel, talkgroup, and decoder setup.",
+        var trunked = actionCard("Listen to local trunked radio", "Pick a location on the map, load directory records, choose a site, and listen.",
                 configuredSystems.isEmpty() ? "Add your first site" : configuredSystems.size() + " site(s) saved",
-                configuredSystems.isEmpty() ? "Guided setup" : "Open systems", () -> navigateTo("Systems"));
+                "Open Workstation", () -> navigateTo("Trunking Workstation"));
         HBox.setHgrow(quick, Priority.ALWAYS);
         HBox.setHgrow(trunked, Priority.ALWAYS);
 
@@ -176,12 +185,82 @@ public final class SdrPoleApplication extends Application {
                 readinessRow("Audio output", hasAudioOutput(), hasAudioOutput() ? "System output is available" : "No compatible output line found"),
                 readinessRow("Analog listening", !devices.isEmpty(), devices.isEmpty() ? "Waiting for a radio" : "Ready now"),
                 readinessRow("JMBE voice library", libraries.jmbePath().isPresent(), libraries.jmbePath().isPresent() ? "Installed" : "Optional—install from Decoders"),
-                readinessRow("P25 trunking engine", false, "Not operational yet; no false Ready label"));
+                readinessRow("P25 trunking", false, p25Engine.enginePath().isPresent()
+                        ? "Engine package installed; runtime bridge still pending" : "Protocol engine package is not installed"));
         var refresh = secondaryButton(devices.isEmpty() ? "Find my radio" : "Refresh radios");
         refresh.setOnAction(event -> refreshDevices(false));
 
         return page(new VBox(18, title, subtitle, new HBox(14, quick, trunked),
-                new Separator(), label("Readiness", 19, true), readiness, refresh));
+                new Separator(), label("What SDR-Pole handles", 19, true),
+                muted("Radio detection • location • named frequency guides • decoder packages • safe tuner settings • audio checks"), readiness, refresh));
+    }
+
+    private Node trunkingWorkstationPage() {
+        return page(new TrunkingWorkstationPane(devices, configuredSystems, savedLocation(), point -> {
+            preferences.put("location.latitude", Double.toString(point.latitude()));
+            preferences.put("location.longitude", Double.toString(point.longitude()));
+            status.setText("Location saved—directory results will use this map point");
+        }, () -> refreshDevices(false), () -> navigateTo("Systems"), () -> navigateTo("Live Calls")));
+    }
+
+    private Node scannerPage() {
+        return page(new ScannerPane(devices, savedLocation(), () -> navigateTo("Trunking Workstation"),
+                band -> openBandInTuner(band, false), bands -> {
+                    openBandsInTuner(bands);
+                    status.setText("Scanner loaded " + bands.size() + " named range(s)");
+                }, status::setText));
+    }
+
+    private void openBandInTuner(FrequencyBand band, boolean scan) {
+        preferences.put("lastFrequencyMhz", String.format("%.5f", band.startHz() / 1e6));
+        preferences.put("lastMode", band.mode().name());
+        preferences.put("scanner.ranges", scan ? ScanPlan.encode(List.of(new ScanRange(band.startHz(), band.endHz(), band.stepHz(), band.mode()))) : "");
+        preferences.putBoolean("scanner.auto", scan);
+        navigateTo("Spectrum");
+    }
+
+    private void openBandsInTuner(List<FrequencyBand> bands) {
+        var first = bands.getFirst();
+        preferences.put("lastFrequencyMhz", String.format("%.5f", first.startHz() / 1e6));
+        preferences.put("lastMode", first.mode().name());
+        preferences.put("scanner.ranges", ScanPlan.encode(bands.stream()
+                .map(b -> new ScanRange(b.startHz(), b.endHz(), b.stepHz(), b.mode())).toList()));
+        preferences.putBoolean("scanner.auto", true);
+        navigateTo("Spectrum");
+    }
+
+    private Node frequencyLibraryPage() {
+        var rows = new VBox(7);
+        FrequencyBandCatalog.northAmerica().forEach(band -> rows.getChildren().add(
+                sourceRow(band.name(), band.rangeLabel() + " • " + band.mode() + " • " + band.commonUse(), "Bundled")));
+        var sources = new VBox(8,
+                sourceRow("Bundled North American guide", "Always available offline; ranges and common uses, not local activity claims.", "Installed"),
+                sourceRow("FCC ULS", "Public weekly/daily license files; spatial importer is not installed yet.", "Available publicly"),
+                sourceRow("RadioReference", "Turnkey local trunking data requires an API key and each user's premium credentials.", "Account required"));
+        return page(new VBox(14, label("Frequency Library", 30, true),
+                muted("Every number has a name, use, mode, region, and source. Directory limitations are visible instead of becoming guesses."),
+                label("Data sources", 19, true), sources, label("Installed range guide", 19, true), rows));
+    }
+
+    private Node setupPage() {
+        var radio = primaryButton("Radios"); radio.setOnAction(e -> navigateTo("Devices"));
+        var decoders = primaryButton("Decoder packages"); decoders.setOnAction(e -> navigateTo("Decoders"));
+        var diagnostics = primaryButton("Run diagnostics"); diagnostics.setOnAction(e -> navigateTo("Diagnostics"));
+        return page(new VBox(16, label("Setup & Diagnostics", 30, true),
+                muted("Setup is kept out of listening workflows unless something needs attention."),
+                readinessRow("Radio", !devices.isEmpty(), devices.isEmpty() ? discovery.lastDiagnostic() : devices.size() + " detected"),
+                readinessRow("Audio", hasAudioOutput(), hasAudioOutput() ? "Ready" : "Needs attention"),
+                readinessRow("Voice library", libraries.jmbePath().isPresent(), libraries.jmbePath().isPresent() ? "JMBE installed" : "Install JMBE"),
+                new HBox(10, radio, decoders, diagnostics)));
+    }
+
+    private java.util.Optional<GeoPoint> savedLocation() {
+        try {
+            var lat = preferences.get("location.latitude", "");
+            var lon = preferences.get("location.longitude", "");
+            return lat.isBlank() || lon.isBlank() ? java.util.Optional.empty()
+                    : java.util.Optional.of(new GeoPoint(Double.parseDouble(lat), Double.parseDouble(lon)));
+        } catch (RuntimeException ignored) { return java.util.Optional.empty(); }
     }
 
     private Node devicesPage() {
@@ -574,6 +653,11 @@ public final class SdrPoleApplication extends Application {
         var initialHz = new AtomicLong(Math.round(Double.parseDouble(frequency.getText().trim()) * 1_000_000));
         waterfall.setTuning(initialHz.get(), sampleRate.getValue());
         var signalAssist = new SignalAssistPane();
+        boolean requestedRangeScan = preferences.getBoolean("scanner.auto", false);
+        var scanRanges = ScanPlan.decode(preferences.get("scanner.ranges", ""));
+        var scanPlan = scanRanges.isEmpty() ? null : new ScanPlan(scanRanges);
+        var rangeScanning = new AtomicBoolean(false);
+        signalAssist.setAutoTuneEnabled(requestedRangeScan);
         var receiverStatus = label("Stopped", 15, true);
         var level = new ProgressBar(0);
         level.setPrefWidth(180);
@@ -592,6 +676,7 @@ public final class SdrPoleApplication extends Application {
         signalAssist.setOnTuneDelta(delta -> tuneTo.accept(initialHz.get() + delta));
         waterfall.setOnTune(tuneTo);
         signalAssist.setOnAutoTune(signal -> {
+            rangeScanning.set(false);
             mode.getSelectionModel().select(signal.hint().mode());
             tuneTo.accept(signal.frequencyHz());
             receiverStatus.setText("Auto-tuned " + String.format("%.5f MHz", signal.frequencyHz() / 1e6));
@@ -630,6 +715,23 @@ public final class SdrPoleApplication extends Application {
                             }
                         });
                 activeReceiver.start();
+                if (requestedRangeScan && scanPlan != null) {
+                    rangeScanning.set(true);
+                    receiverStatus.setText("Scanning " + scanRanges.size() + " named range(s)");
+                    Thread.ofVirtual().start(() -> {
+                        while (rangeScanning.get() && activeReceiver != null) {
+                            var step = scanPlan.next();
+                            Platform.runLater(() -> {
+                                mode.getSelectionModel().select(step.mode());
+                                tuneTo.accept(step.frequencyHz());
+                                receiverStatus.setText("Scanning range " + step.rangeNumber() + "/" + step.rangeCount());
+                            });
+                            try { Thread.sleep(650); }
+                            catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); break; }
+                        }
+                    });
+                    preferences.putBoolean("scanner.auto", false);
+                }
                 listen.setDisable(true);
                 stop.setDisable(false);
             } catch (NumberFormatException e) {
@@ -639,6 +741,7 @@ public final class SdrPoleApplication extends Application {
             }
         });
         stop.setOnAction(event -> {
+            rangeScanning.set(false);
             closeReceiver();
             listen.setDisable(false);
             stop.setDisable(true);
@@ -783,7 +886,9 @@ public final class SdrPoleApplication extends Application {
                 check("SDR provider", !devices.isEmpty(), devices.isEmpty() ? discovery.lastDiagnostic() : devices.size() + " radio(s) detected"),
                 check("Audio output", hasAudioOutput(), hasAudioOutput() ? "Compatible system output available" : "No compatible 48 kHz output found"),
                 check("JMBE voice library", libraries.jmbePath().isPresent(), libraries.jmbePath().isPresent() ? "Installed and validated" : "Optional package not installed"),
-                check("P25 decoder", false, "Decoder package has not been installed"));
+                check("P25 runtime bridge", false, p25Engine.enginePath().isPresent()
+                        ? "GopherTrunk package registered; SDR-Pole process integration remains unfinished"
+                        : "No P25 protocol engine package is registered"));
         var copy = secondaryButton("Copy support report");
         copy.setOnAction(event -> copySupportReport());
         return page(new VBox(16, title, muted("Plain-language checks with repair actions—no wall of USB errors."), checks, copy));
@@ -798,11 +903,13 @@ public final class SdrPoleApplication extends Application {
                 Discovery: %s
                 Audio output: %s
                 JMBE: %s
-                P25 frame decoder: not installed
+                P25 engine package: %s
+                P25 runtime bridge: not operational
                 """.formatted(
                 System.getProperty("os.name"), System.getProperty("os.arch"), System.getProperty("java.version"),
                 devices.size(), discovery.lastDiagnostic(), hasAudioOutput() ? "available" : "unavailable",
-                libraries.jmbePath().isPresent() ? "installed" : "not installed");
+                libraries.jmbePath().isPresent() ? "installed" : "not installed",
+                p25Engine.enginePath().isPresent() ? "registered" : "not installed");
         var content = new ClipboardContent();
         content.putString(report);
         Clipboard.getSystemClipboard().setContent(content);
@@ -858,6 +965,11 @@ public final class SdrPoleApplication extends Application {
 
     private void navigateTo(String page) {
         if (navigation == null) { show(page); return; }
+        if (!navigation.getItems().contains(page)) {
+            navigation.getSelectionModel().clearSelection();
+            show(page);
+            return;
+        }
         var selected = navigation.getSelectionModel().getSelectedItem();
         navigation.getSelectionModel().select(page);
         if (page.equals(selected)) show(page);

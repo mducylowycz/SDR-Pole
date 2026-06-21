@@ -24,6 +24,12 @@ Checked items are implemented in the repository, not merely mocked in the UI.
 - [x] Guided P25 site wizard with plain-language simulcast choice
 - [x] Editable/removable persistent system library
 - [x] End-to-end Listening Health path with next repair action
+- [x] Goal-based Trunking Workstation and Scanner top-level navigation
+- [x] Shared click-to-select map location and saved trunking-site pins
+- [x] Offline named North-American range guide
+- [x] Multi-range scan plan with stable-signal stop
+- [ ] FCC ULS bulk download, spatial join, and dated local index
+- [ ] Authenticated RadioReference adapter (requires application key and user premium account)
 
 ## Receiver engine
 

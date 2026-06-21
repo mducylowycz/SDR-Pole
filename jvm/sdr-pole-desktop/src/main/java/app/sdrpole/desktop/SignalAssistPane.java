@@ -50,6 +50,7 @@ final class SignalAssistPane extends VBox {
 
     void setOnTuneDelta(LongConsumer handler) { wheel.setOnDelta(handler); }
     void setOnAutoTune(Consumer<SignalObservation> handler) { tuneHandler = handler == null ? ignored -> {} : handler; }
+    void setAutoTuneEnabled(boolean enabled) { autoTune.setSelected(enabled); }
 
     void analyze(float[] powerDb, long centerHz, int sampleRate) {
         var observations = detector.detect(powerDb, centerHz, sampleRate, thresholdDb);

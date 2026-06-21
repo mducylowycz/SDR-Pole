@@ -37,6 +37,9 @@ without exposing a wall of cryptic errors.
 - Tested P25 state engine for identities, band plans, neighboring sites, voice grants, slots, and encryption state
 - Guided home, device, nearby, system, call, spectrum, decoder, recording, map,
   diagnostics, and settings areas
+- Goal-based Trunking Workstation and Scanner navigation instead of implementation-oriented menus
+- Click-to-select map location with saved trunking-site pins
+- Bundled named frequency-range guide and true multi-range strong-signal scanning
 - Cross-platform Gradle wrapper and GitHub Actions build matrix
 
 Planned support includes HackRF, RTL-SDR, Airspy, SDRplay, LimeSDR, PlutoSDR,
@@ -58,7 +61,7 @@ Build a self-contained macOS installer:
 ./gradlew :sdr-pole-desktop:macInstaller
 ```
 
-See [architecture](docs/ARCHITECTURE.md), [product research](docs/PRODUCT_RESEARCH.md),
+See [architecture](docs/ARCHITECTURE.md), [frequency data sources](docs/DATA_SOURCES.md), [product research](docs/PRODUCT_RESEARCH.md),
 [product specification](docs/PRODUCT_SPEC.md), [usability research](docs/UX_RESEARCH.md), [technology decisions](docs/TECHNOLOGY.md),
 [roadmap](docs/ROADMAP.md), and [contributing](CONTRIBUTING.md).
 
