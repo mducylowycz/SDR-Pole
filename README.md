@@ -33,6 +33,9 @@ without exposing a wall of cryptic errors.
 - Flexible CSV import for P25 site and control-channel directory exports
 - Location-driven RadioReference v18 network updates using official Census county resolution, with nearest-site ordering and a persistent offline cache
 - Automatic P25 talkgroup names, descriptions, and encryption status, persisted offline and exported directly to the P25 runtime
+- Versioned SQLite frequency index with provenance, confidence, geospatial search, transactional updates, and offline startup
+- Automatic official NOAA channel installation plus persistent strong-signal observations from the connected SDR
+- Modular source catalog for FCC ULS, ISED TAFL, ACMA RRL, Ofcom SIS, optional RadioReference, and local measurements
 - Manual location and local-frequency discovery foundation with explicit data provenance
 - Goal-first Quick Start with live hardware/audio/decoder readiness
 - Persistent Simple and Lab modes with common analog examples and remembered tuning

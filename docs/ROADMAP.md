@@ -40,6 +40,13 @@ Checked items are implemented in the repository, not merely mocked in the UI.
 - [x] Offline named North-American range guide
 - [x] Multi-range scan plan with stable-signal stop
 - [ ] FCC ULS bulk download, spatial join, and dated local index
+- [x] Versioned SQLite directory schema with source provenance, confidence, indexed location queries, and transactional upserts
+- [x] Automatic NOAA reference-channel seed and persistent local strong-signal survey records
+- [x] Independent provider catalog for FCC ULS, ISED TAFL, ACMA RRL, Ofcom SIS, RadioReference, and local measurement
+- [ ] First-run FCC ULS land-mobile importer with download-size consent, resumable transfer, spatial join, and daily deltas
+- [ ] ISED TAFL, ACMA RRL, and Ofcom SIS import adapters with fixture/terms tests
+- [x] Extract authenticated location-directory orchestration from the application shell and enforce a class-size build ratchet
+- [ ] Continue decomposing the legacy application shell below 800 lines, lowering the ratchet after each focused controller/pane extraction
 - [x] Authenticated RadioReference v18 adapter (requires application key and user premium account)
 - [x] Census coordinate-to-county lookup, statewide/county system merge, nearest-site ranking, and 24-hour cache refresh policy
 - [x] Automatic P25 talkgroup label/encryption synchronization, offline persistence, and runtime alias export

@@ -25,8 +25,10 @@ import app.sdrpole.core.p25.P25RuntimeManager;
 import app.sdrpole.core.p25.P25CsvImporter;
 import app.sdrpole.core.p25.P25Talkgroup;
 import app.sdrpole.core.p25.P25TalkgroupStore;
-import app.sdrpole.core.directory.RadioReferenceCredentials;
 import app.sdrpole.core.directory.RadioReferenceDirectoryClient;
+import app.sdrpole.core.directory.FrequencyChannel;
+import app.sdrpole.core.directory.FrequencyDatabase;
+import app.sdrpole.core.directory.LocalSurveyRecorder;
 import app.sdrpole.core.SdrDevice;
 import javafx.application.Application;
 import javafx.application.Platform;
@@ -69,7 +71,8 @@ public final class SdrPoleApplication extends Application {
     private final P25EngineManager p25Engine = new P25EngineManager();
     private final P25RuntimeConfigurator p25Configurator = new P25RuntimeConfigurator();
     private final P25RuntimeManager p25Runtime = new P25RuntimeManager();
-    private final RadioReferenceDirectoryClient radioReference = new RadioReferenceDirectoryClient();
+    private final FrequencyDatabase frequencyDatabase = new FrequencyDatabase();
+    private final LocalSurveyRecorder localSurvey = new LocalSurveyRecorder(frequencyDatabase);
     private final AuditLog audit = new AuditLog();
     private final BorderPane shell = new BorderPane();
     private final Label status = muted("Ready — connect one or more SDRs and choose Devices");
@@ -81,8 +84,9 @@ public final class SdrPoleApplication extends Application {
     private SdrDevice preferredDevice;
     private final List<P25SystemConfig> configuredSystems = new ArrayList<>();
     private final List<P25Talkgroup> configuredTalkgroups = new ArrayList<>();
+    private List<FrequencyChannel> localChannels = List.of();
     private SiteMapView siteMap;
-    private String radioReferencePassword = "";
+    private LocationDirectoryController directoryController;
 
     @Override public void start(Stage stage) {
         audit.record("application", "start", "success", Map.of("version", "0.2.0", "offlineCapable", true));
@@ -91,6 +95,13 @@ public final class SdrPoleApplication extends Application {
         catch (Exception error) { status.setText("Saved P25 sites could not be loaded: " + error.getMessage()); }
         try { configuredTalkgroups.addAll(p25TalkgroupStore.load()); }
         catch (Exception error) { status.setText("Saved P25 talkgroups could not be loaded: " + error.getMessage()); }
+        try {
+            frequencyDatabase.initialize();
+            localChannels = frequencyDatabase.channelsNear(savedLocation().orElse(new GeoPoint(39.5, -98.35)), 100, 100);
+        } catch (Exception error) { status.setText("Local frequency index could not start: " + error.getMessage()); }
+        directoryController = new LocationDirectoryController(preferences, configuredSystems, configuredTalkgroups,
+                p25SystemStore, p25TalkgroupStore, new RadioReferenceDirectoryClient(), audit, this::savedLocation,
+                () -> shell.getScene().getWindow(), status::setText, () -> show("Trunking Workstation"));
         shell.setStyle("-fx-background-color: " + BG + ";");
         shell.setTop(topBar());
         shell.setLeft(navigation());
@@ -220,125 +231,13 @@ public final class SdrPoleApplication extends Application {
         return page(new TrunkingWorkstationPane(devices, configuredSystems, savedLocation(), point -> {
             preferences.put("location.latitude", Double.toString(point.latitude()));
             preferences.put("location.longitude", Double.toString(point.longitude()));
+            refreshLocalChannels(point);
             status.setText("Location saved—directory results will use this map point");
             audit.record("configuration", "listening area changed", "success", Map.of("location", "redacted"));
-            if (!radioReferencePassword.isBlank() && directoryRefreshNeeded(point)) updateLocationDirectory(false);
-        }, () -> refreshDevices(false), () -> navigateTo("Systems"), this::connectLocationDirectory,
-                directoryStatus(), this::autoConfigureP25,
+            directoryController.refreshIfNeeded(point);
+        }, () -> refreshDevices(false), () -> navigateTo("Systems"), directoryController::connect,
+                directoryController.summary(), this::autoConfigureP25,
                 () -> navigateTo("Live Calls")));
-    }
-
-    private String directoryStatus() {
-        long updated = preferences.getLong("directory.rr.updated", 0);
-        if (updated == 0) return "Not connected yet.";
-        var age = java.time.Duration.between(java.time.Instant.ofEpochMilli(updated), java.time.Instant.now());
-        var area = preferences.get("directory.rr.area", "selected area");
-        var count = preferences.getInt("directory.rr.talkgroups", 0);
-        var suffix = count > 0 ? " • " + count + " named talkgroups." : ".";
-        return age.toDays() == 0 ? "Updated today for " + area + suffix
-                : "Updated " + age.toDays() + " day(s) ago for " + area + suffix;
-    }
-
-    private boolean directoryRefreshNeeded(GeoPoint point) {
-        long updated = preferences.getLong("directory.rr.updated", 0);
-        if (updated == 0 || java.time.Duration.between(java.time.Instant.ofEpochMilli(updated), java.time.Instant.now()).toHours() >= 24)
-            return true;
-        try {
-            var cachedPoint = new GeoPoint(preferences.getDouble("directory.rr.latitude", 999),
-                    preferences.getDouble("directory.rr.longitude", 999));
-            return point.distanceKmTo(cachedPoint) >= 25;
-        } catch (RuntimeException ignored) { return true; }
-    }
-
-    private void connectLocationDirectory() {
-        if (savedLocation().isEmpty()) {
-            var alert = new Alert(Alert.AlertType.INFORMATION,
-                    "Click your listening area on the map first. SDR-Pole uses that point to load the correct county and statewide systems.", ButtonType.OK);
-            alert.setTitle("Choose an area"); alert.setHeaderText("Where do you want to listen?");
-            alert.initOwner(shell.getScene().getWindow()); alert.showAndWait(); return;
-        }
-        var dialog = new Dialog<RadioReferenceCredentials>();
-        dialog.setTitle("Connect RadioReference");
-        dialog.setHeaderText("Official local radio data—updated automatically");
-        dialog.initOwner(shell.getScene().getWindow());
-        var connect = new ButtonType("Connect & update", ButtonBar.ButtonData.OK_DONE);
-        dialog.getDialogPane().getButtonTypes().addAll(ButtonType.CANCEL, connect);
-        var appKey = new PasswordField();
-        appKey.setText(System.getProperty("sdrpole.radioreference.appKey", preferences.get("directory.rr.appKey", "")));
-        appKey.setPromptText("SDR-Pole application key");
-        var username = new TextField(preferences.get("directory.rr.username", ""));
-        username.setPromptText("RadioReference username");
-        var password = new PasswordField(); password.setPromptText("RadioReference password");
-        var explanation = new Label("RadioReference requires its approved application key and each user's active Premium account. Your password stays in memory for this session and is never written to SDR-Pole's files.");
-        explanation.setWrapText(true); explanation.setStyle("-fx-text-fill:#4f6470;");
-        var form = new VBox(9, explanation, dialogField("Application key", appKey),
-                dialogField("Username", username), dialogField("Password", password));
-        form.setPrefWidth(520); dialog.getDialogPane().setContent(form);
-        dialog.setResultConverter(button -> button == connect
-                ? new RadioReferenceCredentials(appKey.getText(), username.getText(), password.getText()) : null);
-        dialog.showAndWait().ifPresent(credentials -> {
-            preferences.put("directory.rr.appKey", credentials.appKey());
-            preferences.put("directory.rr.username", credentials.username());
-            radioReferencePassword = credentials.password();
-            updateLocationDirectory(true);
-        });
-    }
-
-    private void updateLocationDirectory(boolean showCompletion) {
-        var location = savedLocation().orElse(null);
-        if (location == null || radioReferencePassword.isBlank()) return;
-        RadioReferenceCredentials credentials;
-        try {
-            credentials = new RadioReferenceCredentials(preferences.get("directory.rr.appKey", ""),
-                    preferences.get("directory.rr.username", ""), radioReferencePassword);
-        } catch (RuntimeException problem) { status.setText(problem.getMessage()); return; }
-        status.setText("Updating verified P25 systems for your location…");
-        Thread.startVirtualThread(() -> {
-            try {
-                var update = radioReference.fetch(location, credentials);
-                Platform.runLater(() -> {
-                    try {
-                        for (var site : update.p25Sites()) {
-                            configuredSystems.removeIf(existing -> existing.systemName().equalsIgnoreCase(site.systemName())
-                                    && existing.siteName().equalsIgnoreCase(site.siteName()));
-                            configuredSystems.add(site);
-                        }
-                        var updatedSystems = update.talkgroups().stream().map(P25Talkgroup::systemName)
-                                .map(String::toLowerCase).collect(java.util.stream.Collectors.toSet());
-                        configuredTalkgroups.removeIf(item -> updatedSystems.contains(item.systemName().toLowerCase()));
-                        configuredTalkgroups.addAll(update.talkgroups());
-                        p25SystemStore.save(configuredSystems);
-                        p25TalkgroupStore.save(configuredTalkgroups);
-                        preferences.putLong("directory.rr.updated", update.retrievedAt().toEpochMilli());
-                        preferences.put("directory.rr.area", update.areaLabel());
-                        preferences.putInt("directory.rr.talkgroups", update.talkgroups().size());
-                        preferences.putDouble("directory.rr.latitude", location.latitude());
-                        preferences.putDouble("directory.rr.longitude", location.longitude());
-                        audit.record("directory", "RadioReference update", "success",
-                                Map.of("siteCount", update.p25Sites().size(), "talkgroupCount", update.talkgroups().size(), "provider", update.provider()));
-                        status.setText("Loaded " + update.p25Sites().size() + " P25 site(s) and "
-                                + update.talkgroups().size() + " talkgroups for " + update.areaLabel());
-                        show("Trunking Workstation");
-                        if (showCompletion) {
-                            var alert = new Alert(Alert.AlertType.INFORMATION,
-                                    "Loaded " + update.p25Sites().size() + " P25 site(s) and " + update.talkgroups().size()
-                                            + " named talkgroups. SDR-Pole will keep this cache and refresh it when you reconnect.", ButtonType.OK);
-                            alert.setTitle("Local radio data is ready");
-                            alert.setHeaderText(update.areaLabel()); alert.initOwner(shell.getScene().getWindow()); alert.showAndWait();
-                        }
-                    } catch (Exception saveError) { status.setText("Local radio data could not be saved: " + saveError.getMessage()); }
-                });
-            } catch (Exception problem) {
-                Platform.runLater(() -> {
-                    audit.record("directory", "RadioReference update", "failure", Map.of("errorType", problem.getClass().getSimpleName()));
-                    status.setText("Directory update failed: " + problem.getMessage());
-                    var alert = new Alert(Alert.AlertType.WARNING, problem.getMessage(), ButtonType.OK);
-                    alert.setTitle("Local radio data could not update");
-                    alert.setHeaderText("Check the account, network, or application key");
-                    alert.initOwner(shell.getScene().getWindow()); alert.showAndWait();
-                });
-            }
-        });
     }
 
     private void autoConfigureP25() {
@@ -383,11 +282,16 @@ public final class SdrPoleApplication extends Application {
     }
 
     private Node scannerPage() {
-        return page(new ScannerPane(devices, savedLocation(), () -> navigateTo("Trunking Workstation"),
+        return page(new ScannerPane(devices, savedLocation(), localChannels, () -> navigateTo("Trunking Workstation"),
                 band -> openBandInTuner(band, false), bands -> {
                     openBandsInTuner(bands);
                     status.setText("Scanner loaded " + bands.size() + " named range(s)");
                 }, status::setText));
+    }
+
+    private void refreshLocalChannels(GeoPoint point) {
+        try { localChannels = frequencyDatabase.channelsNear(point, 100, 250); }
+        catch (Exception error) { status.setText("Local frequency search failed: " + error.getMessage()); }
     }
 
     private void openBandInTuner(FrequencyBand band, boolean scan) {
@@ -410,16 +314,8 @@ public final class SdrPoleApplication extends Application {
     }
 
     private Node frequencyLibraryPage() {
-        var rows = new VBox(7);
-        FrequencyBandCatalog.northAmerica().forEach(band -> rows.getChildren().add(
-                sourceRow(band.name(), band.rangeLabel() + " • " + band.mode() + " • " + band.commonUse(), "Bundled")));
-        var sources = new VBox(8,
-                sourceRow("Bundled North American guide", "Always available offline; ranges and common uses, not local activity claims.", "Installed"),
-                sourceRow("FCC ULS", "Public weekly/daily license files; spatial importer is not installed yet.", "Available publicly"),
-                sourceRow("RadioReference", "Turnkey local trunking data requires an API key and each user's premium credentials.", "Account required"));
-        return page(new VBox(14, label("Frequency Library", 30, true),
-                muted("Every number has a name, use, mode, region, and source. Directory limitations are visible instead of becoming guesses."),
-                label("Data sources", 19, true), sources, label("Installed range guide", 19, true), rows));
+        try { return page(new FrequencyLibraryPane(frequencyDatabase.countsBySource())); }
+        catch (Exception error) { return page(new FrequencyLibraryPane(Map.of())); }
     }
 
     private Node setupPage() {
@@ -887,6 +783,14 @@ public final class SdrPoleApplication extends Application {
             mode.getSelectionModel().select(signal.hint().mode());
             tuneTo.accept(signal.frequencyHz());
             receiverStatus.setText("Auto-tuned " + String.format("%.5f MHz", signal.frequencyHz() / 1e6));
+            Thread.startVirtualThread(() -> {
+                try {
+                    localSurvey.record(signal, savedLocation().orElse(null));
+                    savedLocation().ifPresent(point -> Platform.runLater(() -> refreshLocalChannels(point)));
+                } catch (Exception problem) {
+                    Platform.runLater(() -> status.setText("Signal heard, but survey history could not save: " + problem.getMessage()));
+                }
+            });
         });
         sampleRate.valueProperty().addListener((o, old, value) -> waterfall.setTuning(initialHz.get(), value));
 

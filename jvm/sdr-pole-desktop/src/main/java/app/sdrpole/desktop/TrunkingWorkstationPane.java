@@ -31,7 +31,7 @@ final class TrunkingWorkstationPane extends VBox {
         var sources = new VBox(8,
                 source("Bundled frequency guide", "Installed offline; nationwide ranges and correct modes.", "READY"),
                 source("Saved/imported systems", systems.size() + " site(s); located sites are pinned above.", "READY"),
-                source("FCC ULS public records", "Free license records; a license is not proof a channel is active.", "Importer next"),
+                source("Open regulatory records", "FCC ULS, ISED TAFL, ACMA RRL, and Ofcom SIS adapters share one local schema. A licence is not proof of activity.", "EXPANDING"),
                 source("RadioReference directory", "Official local trunked systems, sites, control channels, and modulation. " + directoryStatus,
                         directoryStatus.startsWith("Updated") ? "CURRENT" : "CONNECT"));
         var update = primary(directoryStatus.startsWith("Updated") ? "Update local radio data" : "Connect location data");

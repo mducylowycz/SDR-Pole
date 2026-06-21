@@ -16,6 +16,19 @@ application {
     mainClass = 'app.sdrpole.desktop.Launcher'
 }
 
+// Architectural ratchet: the early shell is being decomposed; no new class may grow into another god object.
+tasks.register('verifyClassSizeRatchet') {
+    doLast {
+        fileTree('src/main/java').matching { include '**/*.java' }.files.each { source ->
+            def lines = source.readLines('UTF-8').size()
+            def limit = source.name == 'SdrPoleApplication.java' ? 1260 : 300
+            if (lines > limit) throw new GradleException("${source.name} has ${lines} lines (limit ${limit}); extract a focused collaborator")
+        }
+    }
+}
+
+tasks.named('check') { dependsOn tasks.named('verifyClassSizeRatchet') }
+
 tasks.register('runtimeImage', Exec) {
     dependsOn installDist
     commandLine 'jpackage',

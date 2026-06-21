@@ -37,6 +37,29 @@ unavailable.
 Source: [RadioReference API documentation](https://wiki.radioreference.com/index.php/API).
 Location source: [U.S. Census Geocoder](https://geocoding.geo.census.gov/geocoder/).
 
+## Open regulatory sources
+
+SDR-Pole's local SQLite index is designed for the [FCC ULS public access
+files](https://www.fcc.gov/wireless/data/public-access-files-database-downloads),
+[ISED TAFL](https://ised-isde.canada.ca/site/spectrum-management-telecommunications/en/spectrum-allocation/technical-and-administrative-frequency-list-tafl),
+[ACMA RRL](https://www.acma.gov.au/radiocomms-licence-data), and
+[Ofcom SIS](https://www.ofcom.org.uk/spectrum/frequencies/spectrum-information-system-sis).
+These are independent provider adapters, not fallbacks that silently reinterpret
+one provider's data as another's. A regulator record is labeled `LICENSED`; it is
+never presented as proof of current activity or a trunking control channel.
+
+Initial official bulk downloads can be large, so SDR-Pole will disclose size and
+terms before downloading them. Cached data remains usable offline and differential
+updates can be applied after the initial index exists.
+
+## NOAA Weather Radio and local measurements
+
+The seven exact [NOAA Weather Radio](https://www.weather.gov/nwr/) channels are
+installed automatically in SQLite as official `REFERENCE` records. When automatic
+tuning confirms a stable strong signal, SDR-Pole also stores its frequency, decoder
+hint, location, and time as `MEASURED`. Energy detection does not claim to know the
+transmitter or protocol; frame confirmation is still required.
+
 ## Map and measured signals
 
 OpenStreetMap tiles provide geographic context. Saved/imported site coordinates

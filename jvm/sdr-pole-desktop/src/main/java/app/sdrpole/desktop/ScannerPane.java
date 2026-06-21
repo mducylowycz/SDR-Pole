@@ -4,6 +4,7 @@ import app.sdrpole.core.FrequencyBand;
 import app.sdrpole.core.FrequencyBandCatalog;
 import app.sdrpole.core.GeoPoint;
 import app.sdrpole.core.SdrDevice;
+import app.sdrpole.core.directory.FrequencyChannel;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.Button;
@@ -19,7 +20,7 @@ import java.util.function.Consumer;
 
 /** Goal-focused conventional scanner. It owns presentation, not radio or persistence. */
 final class ScannerPane extends VBox {
-    ScannerPane(List<SdrDevice> devices, Optional<GeoPoint> location, Runnable chooseLocation,
+    ScannerPane(List<SdrDevice> devices, Optional<GeoPoint> location, List<FrequencyChannel> channels, Runnable chooseLocation,
                 Consumer<FrequencyBand> listen, Consumer<List<FrequencyBand>> scan, Consumer<String> notice) {
         setSpacing(14);
         var locationText = location.map(point -> String.format("Location: %.4f, %.4f", point.latitude(), point.longitude()))
@@ -43,7 +44,27 @@ final class ScannerPane extends VBox {
         auto.setOnAction(e -> { if (selected.isEmpty()) notice.accept("Select at least one named range first"); else scan.accept(List.copyOf(selected)); });
         var radio = status("Radio", !devices.isEmpty(), devices.isEmpty() ? "Connect one in Setup" : devices.getFirst().label());
         getChildren().addAll(title("Scanner", 30), muted("Select by purpose, not mystery numbers. Auto-scan cycles every selected range and stops on a stable strong signal."),
-                locationRow, new HBox(10, radio, auto), title("Common frequency ranges", 19), rows);
+                locationRow, new HBox(10, radio, auto));
+        if (!channels.isEmpty()) {
+            var exact = new VBox(7);
+            channels.forEach(channel -> exact.getChildren().add(channelRow(channel, listen)));
+            getChildren().addAll(title("Ready-to-listen channels", 19),
+                    muted("Exact channels from the local source index. REFERENCE means an official channel; LICENSED and MEASURED have different meanings."), exact);
+        }
+        getChildren().addAll(title("Common frequency ranges", 19), rows);
+    }
+
+    private static HBox channelRow(FrequencyChannel channel, Consumer<FrequencyBand> listen) {
+        var copy = new VBox(2, title(channel.name(), 15),
+                muted(channel.frequencyLabel() + "  •  " + channel.mode() + "  •  " + channel.commonUse()));
+        HBox.setHgrow(copy, Priority.ALWAYS);
+        var provenance = accent(channel.confidence() + " · " + channel.sourceId());
+        var now = secondary("Listen");
+        now.setOnAction(event -> listen.accept(new FrequencyBand(channel.name(), channel.frequencyHz(), channel.frequencyHz(),
+                1, channel.mode(), channel.commonUse(), channel.region())));
+        var row = new HBox(10, copy, provenance, now); row.setAlignment(Pos.CENTER_LEFT); row.setPadding(new Insets(10));
+        row.setStyle("-fx-background-color:#14202a;-fx-background-radius:12;-fx-border-color:#263b48;-fx-border-radius:12;");
+        return row;
     }
 
     private static HBox status(String name, boolean okay, String detail) {
