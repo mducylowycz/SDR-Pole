@@ -23,6 +23,8 @@ import app.sdrpole.core.p25.P25SystemStore;
 import app.sdrpole.core.p25.P25RuntimeConfigurator;
 import app.sdrpole.core.p25.P25RuntimeManager;
 import app.sdrpole.core.p25.P25CsvImporter;
+import app.sdrpole.core.directory.RadioReferenceCredentials;
+import app.sdrpole.core.directory.RadioReferenceDirectoryClient;
 import app.sdrpole.core.SdrDevice;
 import javafx.application.Application;
 import javafx.application.Platform;
@@ -64,6 +66,7 @@ public final class SdrPoleApplication extends Application {
     private final P25EngineManager p25Engine = new P25EngineManager();
     private final P25RuntimeConfigurator p25Configurator = new P25RuntimeConfigurator();
     private final P25RuntimeManager p25Runtime = new P25RuntimeManager();
+    private final RadioReferenceDirectoryClient radioReference = new RadioReferenceDirectoryClient();
     private final AuditLog audit = new AuditLog();
     private final BorderPane shell = new BorderPane();
     private final Label status = muted("Ready — connect one or more SDRs and choose Devices");
@@ -75,6 +78,7 @@ public final class SdrPoleApplication extends Application {
     private SdrDevice preferredDevice;
     private final List<P25SystemConfig> configuredSystems = new ArrayList<>();
     private SiteMapView siteMap;
+    private String radioReferencePassword = "";
 
     @Override public void start(Stage stage) {
         audit.record("application", "start", "success", Map.of("version", "0.2.0", "offlineCapable", true));
@@ -212,8 +216,112 @@ public final class SdrPoleApplication extends Application {
             preferences.put("location.longitude", Double.toString(point.longitude()));
             status.setText("Location saved—directory results will use this map point");
             audit.record("configuration", "listening area changed", "success", Map.of("location", "redacted"));
-        }, () -> refreshDevices(false), () -> navigateTo("Systems"), this::autoConfigureP25,
+            if (!radioReferencePassword.isBlank() && directoryRefreshNeeded(point)) updateLocationDirectory(false);
+        }, () -> refreshDevices(false), () -> navigateTo("Systems"), this::connectLocationDirectory,
+                directoryStatus(), this::autoConfigureP25,
                 () -> navigateTo("Live Calls")));
+    }
+
+    private String directoryStatus() {
+        long updated = preferences.getLong("directory.rr.updated", 0);
+        if (updated == 0) return "Not connected yet.";
+        var age = java.time.Duration.between(java.time.Instant.ofEpochMilli(updated), java.time.Instant.now());
+        var area = preferences.get("directory.rr.area", "selected area");
+        return age.toDays() == 0 ? "Updated today for " + area + "." : "Updated " + age.toDays() + " day(s) ago for " + area + ".";
+    }
+
+    private boolean directoryRefreshNeeded(GeoPoint point) {
+        long updated = preferences.getLong("directory.rr.updated", 0);
+        if (updated == 0 || java.time.Duration.between(java.time.Instant.ofEpochMilli(updated), java.time.Instant.now()).toHours() >= 24)
+            return true;
+        try {
+            var cachedPoint = new GeoPoint(preferences.getDouble("directory.rr.latitude", 999),
+                    preferences.getDouble("directory.rr.longitude", 999));
+            return point.distanceKmTo(cachedPoint) >= 25;
+        } catch (RuntimeException ignored) { return true; }
+    }
+
+    private void connectLocationDirectory() {
+        if (savedLocation().isEmpty()) {
+            var alert = new Alert(Alert.AlertType.INFORMATION,
+                    "Click your listening area on the map first. SDR-Pole uses that point to load the correct county and statewide systems.", ButtonType.OK);
+            alert.setTitle("Choose an area"); alert.setHeaderText("Where do you want to listen?");
+            alert.initOwner(shell.getScene().getWindow()); alert.showAndWait(); return;
+        }
+        var dialog = new Dialog<RadioReferenceCredentials>();
+        dialog.setTitle("Connect RadioReference");
+        dialog.setHeaderText("Official local radio data—updated automatically");
+        dialog.initOwner(shell.getScene().getWindow());
+        var connect = new ButtonType("Connect & update", ButtonBar.ButtonData.OK_DONE);
+        dialog.getDialogPane().getButtonTypes().addAll(ButtonType.CANCEL, connect);
+        var appKey = new PasswordField();
+        appKey.setText(System.getProperty("sdrpole.radioreference.appKey", preferences.get("directory.rr.appKey", "")));
+        appKey.setPromptText("SDR-Pole application key");
+        var username = new TextField(preferences.get("directory.rr.username", ""));
+        username.setPromptText("RadioReference username");
+        var password = new PasswordField(); password.setPromptText("RadioReference password");
+        var explanation = new Label("RadioReference requires its approved application key and each user's active Premium account. Your password stays in memory for this session and is never written to SDR-Pole's files.");
+        explanation.setWrapText(true); explanation.setStyle("-fx-text-fill:#4f6470;");
+        var form = new VBox(9, explanation, dialogField("Application key", appKey),
+                dialogField("Username", username), dialogField("Password", password));
+        form.setPrefWidth(520); dialog.getDialogPane().setContent(form);
+        dialog.setResultConverter(button -> button == connect
+                ? new RadioReferenceCredentials(appKey.getText(), username.getText(), password.getText()) : null);
+        dialog.showAndWait().ifPresent(credentials -> {
+            preferences.put("directory.rr.appKey", credentials.appKey());
+            preferences.put("directory.rr.username", credentials.username());
+            radioReferencePassword = credentials.password();
+            updateLocationDirectory(true);
+        });
+    }
+
+    private void updateLocationDirectory(boolean showCompletion) {
+        var location = savedLocation().orElse(null);
+        if (location == null || radioReferencePassword.isBlank()) return;
+        RadioReferenceCredentials credentials;
+        try {
+            credentials = new RadioReferenceCredentials(preferences.get("directory.rr.appKey", ""),
+                    preferences.get("directory.rr.username", ""), radioReferencePassword);
+        } catch (RuntimeException problem) { status.setText(problem.getMessage()); return; }
+        status.setText("Updating verified P25 systems for your location…");
+        Thread.startVirtualThread(() -> {
+            try {
+                var update = radioReference.fetch(location, credentials);
+                Platform.runLater(() -> {
+                    try {
+                        for (var site : update.p25Sites()) {
+                            configuredSystems.removeIf(existing -> existing.systemName().equalsIgnoreCase(site.systemName())
+                                    && existing.siteName().equalsIgnoreCase(site.siteName()));
+                            configuredSystems.add(site);
+                        }
+                        p25SystemStore.save(configuredSystems);
+                        preferences.putLong("directory.rr.updated", update.retrievedAt().toEpochMilli());
+                        preferences.put("directory.rr.area", update.areaLabel());
+                        preferences.putDouble("directory.rr.latitude", location.latitude());
+                        preferences.putDouble("directory.rr.longitude", location.longitude());
+                        audit.record("directory", "RadioReference update", "success",
+                                Map.of("siteCount", update.p25Sites().size(), "provider", update.provider()));
+                        status.setText("Loaded " + update.p25Sites().size() + " verified P25 site(s) for " + update.areaLabel());
+                        show("Trunking Workstation");
+                        if (showCompletion) {
+                            var alert = new Alert(Alert.AlertType.INFORMATION,
+                                    "Loaded " + update.p25Sites().size() + " P25 site(s). SDR-Pole will keep this cache and refresh it when you reconnect.", ButtonType.OK);
+                            alert.setTitle("Local radio data is ready");
+                            alert.setHeaderText(update.areaLabel()); alert.initOwner(shell.getScene().getWindow()); alert.showAndWait();
+                        }
+                    } catch (Exception saveError) { status.setText("Local radio data could not be saved: " + saveError.getMessage()); }
+                });
+            } catch (Exception problem) {
+                Platform.runLater(() -> {
+                    audit.record("directory", "RadioReference update", "failure", Map.of("errorType", problem.getClass().getSimpleName()));
+                    status.setText("Directory update failed: " + problem.getMessage());
+                    var alert = new Alert(Alert.AlertType.WARNING, problem.getMessage(), ButtonType.OK);
+                    alert.setTitle("Local radio data could not update");
+                    alert.setHeaderText("Check the account, network, or application key");
+                    alert.initOwner(shell.getScene().getWindow()); alert.showAndWait();
+                });
+            }
+        });
     }
 
     private void autoConfigureP25() {

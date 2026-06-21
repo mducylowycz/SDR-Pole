@@ -40,7 +40,8 @@ Checked items are implemented in the repository, not merely mocked in the UI.
 - [x] Offline named North-American range guide
 - [x] Multi-range scan plan with stable-signal stop
 - [ ] FCC ULS bulk download, spatial join, and dated local index
-- [ ] Authenticated RadioReference adapter (requires application key and user premium account)
+- [x] Authenticated RadioReference v18 adapter (requires application key and user premium account)
+- [x] Census coordinate-to-county lookup, statewide/county system merge, nearest-site ranking, and 24-hour cache refresh policy
 
 ## Receiver engine
 

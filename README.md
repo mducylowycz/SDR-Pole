@@ -31,6 +31,7 @@ without exposing a wall of cryptic errors.
 - One-click local GopherTrunk P25 Phase 1/2 startup with generated configuration
 - Automatic nearest-site selection, simulcast/CQPSK settings, multi-radio role assignment, safe gain, AFC, and one-radio virtual voice tuners
 - Flexible CSV import for P25 site and control-channel directory exports
+- Location-driven RadioReference v18 network updates using official Census county resolution, with nearest-site ordering and a persistent offline cache
 - Manual location and local-frequency discovery foundation with explicit data provenance
 - Goal-first Quick Start with live hardware/audio/decoder readiness
 - Persistent Simple and Lab modes with common analog examples and remembered tuning

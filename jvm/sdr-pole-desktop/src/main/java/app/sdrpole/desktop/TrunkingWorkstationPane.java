@@ -16,6 +16,7 @@ import java.util.function.Consumer;
 final class TrunkingWorkstationPane extends VBox {
     TrunkingWorkstationPane(List<SdrDevice> devices, List<P25SystemConfig> systems, Optional<GeoPoint> location,
                             Consumer<GeoPoint> locationSelected, Runnable refresh, Runnable manage,
+                            Runnable updateDirectory, String directoryStatus,
                             Runnable autoConfigure, Runnable readiness) {
         setSpacing(14);
         var map = new SiteMapView(); location.ifPresent(point -> map.centerOn(point, 9));
@@ -31,7 +32,10 @@ final class TrunkingWorkstationPane extends VBox {
                 source("Bundled frequency guide", "Installed offline; nationwide ranges and correct modes.", "READY"),
                 source("Saved/imported systems", systems.size() + " site(s); located sites are pinned above.", "READY"),
                 source("FCC ULS public records", "Free license records; a license is not proof a channel is active.", "Importer next"),
-                source("RadioReference directory", "Exact local listings require the user's premium account and an SDR-Pole application key.", "Credentials required"));
+                source("RadioReference directory", "Official local trunked systems, sites, control channels, and modulation. " + directoryStatus,
+                        directoryStatus.startsWith("Updated") ? "CURRENT" : "CONNECT"));
+        var update = primary(directoryStatus.startsWith("Updated") ? "Update local radio data" : "Connect location data");
+        update.setOnAction(event -> updateDirectory.run());
         var manageButton = primary(systems.isEmpty() ? "Add a system without a directory" : "Manage loaded systems"); manageButton.setOnAction(e -> manage.run());
         var automatic = primary("Auto-configure P25 & listen");
         automatic.setAccessibleHelp("Select the nearest saved P25 site, configure connected radios, and start the local decoder engine.");
@@ -40,7 +44,7 @@ final class TrunkingWorkstationPane extends VBox {
         var readyButton = primary("Check listening readiness"); readyButton.setOnAction(e -> readiness.run());
         getChildren().addAll(title("Trunking Workstation", 30), muted("Radio, map, directories, sites, decoders, and listening status in one guided workspace."),
                 title("1  Connect", 18), radio, title("2  Choose your area", 18), muted("Click once to pin your location. Drag to pan; scroll to zoom."), locationState, map,
-                title("3  Load frequency libraries", 18), sources,
+                title("3  Load frequency libraries", 18), sources, update,
                 title("4  Let SDR-Pole configure it", 18),
                 muted("SDR-Pole chooses the nearest saved site, assigns every connected radio, enables safe gain and frequency correction, and starts P25 locally."),
                 new HBox(10, automatic, manageButton, readyButton));
