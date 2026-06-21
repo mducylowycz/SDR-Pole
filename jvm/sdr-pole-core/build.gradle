@@ -6,7 +6,7 @@ dependencies {
     implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.19.1'
     implementation 'net.java.dev.jna:jna:5.17.0'
     implementation 'org.xerial:sqlite-jdbc:3.53.1.0'
-    testImplementation platform('org.junit:junit-bom:5.13.1')
+    testImplementation platform('org.junit:junit-bom:6.1.0')
     testImplementation 'org.junit.jupiter:junit-jupiter'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
