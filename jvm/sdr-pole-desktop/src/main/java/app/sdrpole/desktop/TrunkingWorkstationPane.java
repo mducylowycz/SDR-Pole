@@ -15,7 +15,8 @@ import java.util.function.Consumer;
 /** Map-first trunking workflow. Directory adapters remain separate data services. */
 final class TrunkingWorkstationPane extends VBox {
     TrunkingWorkstationPane(List<SdrDevice> devices, List<P25SystemConfig> systems, Optional<GeoPoint> location,
-                            Consumer<GeoPoint> locationSelected, Runnable refresh, Runnable manage, Runnable readiness) {
+                            Consumer<GeoPoint> locationSelected, Runnable refresh, Runnable manage,
+                            Runnable autoConfigure, Runnable readiness) {
         setSpacing(14);
         var map = new SiteMapView(); location.ifPresent(point -> map.centerOn(point, 9));
         systems.stream().filter(config -> config.location() != null).forEach(config -> map.addMarker(
@@ -32,10 +33,17 @@ final class TrunkingWorkstationPane extends VBox {
                 source("FCC ULS public records", "Free license records; a license is not proof a channel is active.", "Importer next"),
                 source("RadioReference directory", "Exact local listings require the user's premium account and an SDR-Pole application key.", "Credentials required"));
         var manageButton = primary(systems.isEmpty() ? "Add a system without a directory" : "Manage loaded systems"); manageButton.setOnAction(e -> manage.run());
+        var automatic = primary("Auto-configure P25 & listen");
+        automatic.setAccessibleHelp("Select the nearest saved P25 site, configure connected radios, and start the local decoder engine.");
+        automatic.setDisable(devices.isEmpty() || systems.isEmpty());
+        automatic.setOnAction(e -> autoConfigure.run());
         var readyButton = primary("Check listening readiness"); readyButton.setOnAction(e -> readiness.run());
         getChildren().addAll(title("Trunking Workstation", 30), muted("Radio, map, directories, sites, decoders, and listening status in one guided workspace."),
                 title("1  Connect", 18), radio, title("2  Choose your area", 18), muted("Click once to pin your location. Drag to pan; scroll to zoom."), locationState, map,
-                title("3  Load frequency libraries", 18), sources, title("4  Choose a system", 18), new HBox(10, manageButton, readyButton));
+                title("3  Load frequency libraries", 18), sources,
+                title("4  Let SDR-Pole configure it", 18),
+                muted("SDR-Pole chooses the nearest saved site, assigns every connected radio, enables safe gain and frequency correction, and starts P25 locally."),
+                new HBox(10, automatic, manageButton, readyButton));
     }
 
     private static HBox source(String name, String detail, String state) {

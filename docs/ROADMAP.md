@@ -32,6 +32,8 @@ Checked items are implemented in the repository, not merely mocked in the UI.
 - [ ] Integrated repair actions for drivers, audio devices, and occupied radios
 - [x] Guided P25 site wizard with plain-language simulcast choice
 - [x] Editable/removable persistent system library
+- [x] Flexible P25 CSV site import with common directory-header aliases
+- [x] One-click automatic P25 configuration and local engine startup
 - [x] End-to-end Listening Health path with next repair action
 - [x] Goal-based Trunking Workstation and Scanner top-level navigation
 - [x] Shared click-to-select map location and saved trunking-site pins
@@ -61,6 +63,8 @@ Checked items are implemented in the repository, not merely mocked in the UI.
 
 ## Digital voice and trunking
 
+- [x] Process-isolated P25 Phase 1/2 runtime bridge with generated private configuration
+- [x] Simulcast-aware CQPSK/C4FM selection, AFC, encrypted-call skipping, and bounded recording defaults
 - [ ] P25 Phase 1 C4FM/CQPSK symbol and frame decoding
 - [ ] P25 control-channel messages and system/site discovery
 - [x] P25 identity, band-plan, neighbor-site, voice-grant, slot, and call-lifetime state engine
@@ -78,7 +82,8 @@ Checked items are implemented in the repository, not merely mocked in the UI.
 - [ ] FCC ULS regional importer, provenance, cache age, and update workflow
 - [ ] RadioReference-assisted import using the user's authorized account
 - [ ] SDRTrunk playlist migration
-- [ ] Automatic tuner allocation by bandwidth and priority
+- [x] Initial automatic tuner allocation with nearest-site, wideband control, virtual voice taps, and additional voice radios
+- [ ] Dynamic tuner reallocation by live grant priority and measured RF quality
 - [ ] Live calls, hold, lockout, priorities, aliases, and alerts
 - [ ] Searchable call history and configurable recording retention
 - [x] Interactive pan/zoom site map with control-channel markers

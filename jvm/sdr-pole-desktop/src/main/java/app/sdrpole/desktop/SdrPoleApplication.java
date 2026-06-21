@@ -20,6 +20,9 @@ import app.sdrpole.core.ScanRange;
 import app.sdrpole.core.AuditLog;
 import app.sdrpole.core.p25.P25SystemConfig;
 import app.sdrpole.core.p25.P25SystemStore;
+import app.sdrpole.core.p25.P25RuntimeConfigurator;
+import app.sdrpole.core.p25.P25RuntimeManager;
+import app.sdrpole.core.p25.P25CsvImporter;
 import app.sdrpole.core.SdrDevice;
 import javafx.application.Application;
 import javafx.application.Platform;
@@ -59,6 +62,8 @@ public final class SdrPoleApplication extends Application {
     private final Preferences preferences = Preferences.userNodeForPackage(SdrPoleApplication.class);
     private final P25SystemStore p25SystemStore = new P25SystemStore();
     private final P25EngineManager p25Engine = new P25EngineManager();
+    private final P25RuntimeConfigurator p25Configurator = new P25RuntimeConfigurator();
+    private final P25RuntimeManager p25Runtime = new P25RuntimeManager();
     private final AuditLog audit = new AuditLog();
     private final BorderPane shell = new BorderPane();
     private final Label status = muted("Ready — connect one or more SDRs and choose Devices");
@@ -207,7 +212,48 @@ public final class SdrPoleApplication extends Application {
             preferences.put("location.longitude", Double.toString(point.longitude()));
             status.setText("Location saved—directory results will use this map point");
             audit.record("configuration", "listening area changed", "success", Map.of("location", "redacted"));
-        }, () -> refreshDevices(false), () -> navigateTo("Systems"), () -> navigateTo("Live Calls")));
+        }, () -> refreshDevices(false), () -> navigateTo("Systems"), this::autoConfigureP25,
+                () -> navigateTo("Live Calls")));
+    }
+
+    private void autoConfigureP25() {
+        try {
+            var plan = p25Configurator.create(devices, configuredSystems, savedLocation().orElse(null));
+            var engine = p25Engine.enginePath().orElseThrow(() ->
+                    new IllegalStateException("Install the P25 engine from Decoder packages first"));
+            p25Runtime.start(engine, plan);
+            preferences.put("p25.active.system", plan.system().systemName());
+            preferences.put("p25.active.site", plan.system().siteName());
+            preferences.putLong("p25.center.frequency", plan.centerFrequencyHz());
+            preferences.putInt("p25.sample.rate", plan.sampleRate());
+            audit.record("trunking", "automatic P25 configuration", "success", Map.of(
+                    "deviceCount", devices.size(), "controlChannels", plan.system().controlFrequenciesHz().size(),
+                    "simulcast", plan.system().modulation() == P25SystemConfig.Modulation.LSM_SIMULCAST));
+
+            var detail = new StringBuilder()
+                    .append("System: ").append(plan.system().systemName()).append(" / ").append(plan.system().siteName()).append('\n')
+                    .append("Radio: ").append(friendlyDeviceName(plan.controlDevice())).append('\n')
+                    .append("Control channels: ").append(plan.system().controlFrequenciesHz().size()).append('\n')
+                    .append("Automatic frequency correction: on\n")
+                    .append("Unsafe RF power and bias tee: off\n\n");
+            plan.notes().forEach(note -> detail.append("✓ ").append(note).append('\n'));
+            var alert = new Alert(Alert.AlertType.INFORMATION, detail.toString(), ButtonType.OK);
+            alert.setTitle("P25 is configured");
+            alert.setHeaderText("SDR-Pole started local P25 monitoring");
+            alert.initOwner(shell.getScene().getWindow());
+            alert.showAndWait();
+            status.setText("P25 monitoring: " + plan.system().systemName() + " / " + plan.system().siteName());
+            show("Trunking Workstation");
+        } catch (Exception problem) {
+            audit.record("trunking", "automatic P25 configuration", "failure",
+                    Map.of("errorType", problem.getClass().getSimpleName()));
+            var alert = new Alert(Alert.AlertType.WARNING, problem.getMessage(), ButtonType.OK);
+            alert.setTitle("P25 setup needs one thing");
+            alert.setHeaderText("Automatic setup could not start yet");
+            alert.initOwner(shell.getScene().getWindow());
+            alert.showAndWait();
+            status.setText(problem.getMessage());
+        }
     }
 
     private Node scannerPage() {
@@ -327,8 +373,8 @@ public final class SdrPoleApplication extends Application {
         var subtitle = muted("A system keeps its sites, control channels, map locations, and future talkgroups together—no playlist archaeology.");
         var add = primaryButton("Add P25 site");
         add.setOnAction(event -> showP25SiteWizard(null));
-        var importButton = secondaryButton("Import (coming next)");
-        importButton.setDisable(true);
+        var importButton = secondaryButton("Import P25 sites from CSV");
+        importButton.setOnAction(event -> importP25Csv());
         var actions = new HBox(10, add, importButton);
         var systems = new VBox(10);
         if (configuredSystems.isEmpty()) {
@@ -339,6 +385,33 @@ public final class SdrPoleApplication extends Application {
         var health = secondaryButton("Why can't I hear calls?");
         health.setOnAction(event -> navigateTo("Live Calls"));
         return page(new VBox(16, title, subtitle, actions, systems, health));
+    }
+
+    private void importP25Csv() {
+        var chooser = new FileChooser();
+        chooser.setTitle("Import P25 sites");
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("CSV frequency lists", "*.csv"));
+        var file = chooser.showOpenDialog(shell.getScene().getWindow());
+        if (file == null) return;
+        try {
+            var imported = new P25CsvImporter().read(file.toPath());
+            for (var site : imported) {
+                configuredSystems.removeIf(existing -> existing.systemName().equalsIgnoreCase(site.systemName())
+                        && existing.siteName().equalsIgnoreCase(site.siteName()));
+                configuredSystems.add(site);
+            }
+            p25SystemStore.save(configuredSystems);
+            audit.record("trunking", "P25 CSV import", "success", Map.of("siteCount", imported.size()));
+            status.setText("Imported " + imported.size() + " P25 site(s)—automatic setup is ready");
+            show("Systems");
+        } catch (Exception problem) {
+            audit.record("trunking", "P25 CSV import", "failure", Map.of("errorType", problem.getClass().getSimpleName()));
+            var alert = new Alert(Alert.AlertType.WARNING, problem.getMessage(), ButtonType.OK);
+            alert.setTitle("Could not import P25 sites");
+            alert.setHeaderText("The frequency list needs attention");
+            alert.initOwner(shell.getScene().getWindow());
+            alert.showAndWait();
+        }
     }
 
     private Node systemCard(P25SystemConfig config) {
@@ -1144,7 +1217,7 @@ public final class SdrPoleApplication extends Application {
         if (receiver != null) receiver.close();
     }
 
-    @Override public void stop() { closeReceiver(); }
+    @Override public void stop() { closeReceiver(); p25Runtime.close(); }
 
     public static void main(String[] args) { launch(args); }
 }

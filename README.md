@@ -11,8 +11,9 @@ without exposing a wall of cryptic errors.
 > [!IMPORTANT]
 > SDR-Pole is early-stage software. Device discovery, the cross-platform UI,
 > plugin API, verified downloader, catalog, tests, packaging, and initial analog
-> reception are working. P25 signal/frame decoding and trunk following are active
-> roadmap work—not finished features. Encrypted traffic is never decrypted.
+> reception are working. P25 signal/frame decoding and trunk following run through
+> the separately installed GopherTrunk engine; they still require real-world RF
+> validation across supported radios and systems. Encrypted traffic is never decrypted.
 
 ## Current features
 
@@ -27,7 +28,9 @@ without exposing a wall of cryptic errors.
 - Staged decoder downloads with SHA-256 verification and atomic activation
 - Visible P25 Phase 1/2, DMR, and NXDN package/license status
 - One-click official JMBE Creator download, pinned checksum verification, local build, validation, and activation
-- Validated external GopherTrunk P25 Phase 1/2 engine registration (process integration remains roadmap work)
+- One-click local GopherTrunk P25 Phase 1/2 startup with generated configuration
+- Automatic nearest-site selection, simulcast/CQPSK settings, multi-radio role assignment, safe gain, AFC, and one-radio virtual voice tuners
+- Flexible CSV import for P25 site and control-channel directory exports
 - Manual location and local-frequency discovery foundation with explicit data provenance
 - Goal-first Quick Start with live hardware/audio/decoder readiness
 - Persistent Simple and Lab modes with common analog examples and remembered tuning
