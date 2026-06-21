@@ -27,6 +27,11 @@ Checked items are implemented in the repository, not merely mocked in the UI.
 
 ## Receiver engine
 
+- [x] Debounced strong-signal auto-tuning within the live receiver passband
+- [x] Spectrum-based decoder suggestions with explicit frame-confirmation status
+- [x] Virtual tuning wheel with selectable tuning steps
+- [x] Combined calibrated spectrum/waterfall with cursor and click-to-tune
+
 - [x] SoapySDR native streaming bridge
 - [ ] Multiple simultaneous IQ streams
 - [x] FFT spectrum and waterfall

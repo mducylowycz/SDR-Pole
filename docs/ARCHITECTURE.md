@@ -33,6 +33,12 @@ Java `ServiceLoader` discovers implementations of `DecoderPlugin`. Native
 libraries are shipped per OS/architecture inside a decoder or hardware package.
 Future hardening should run untrusted third-party decoders out-of-process.
 
+Live spectrum analysis follows the same boundary: `SignalDetector` and
+`AutoTunePolicy` contain no JavaFX code; `WaterfallView` and `TuningWheel` are
+small event-emitting controls; the receiver owns hardware/audio lifetime. New
+features must not accumulate in the application shell as a god object or use
+cross-cutting mixins.
+
 ## Ease-of-use rules
 
 1. Never ask users for sample rate, gain, drivers, or control channels before

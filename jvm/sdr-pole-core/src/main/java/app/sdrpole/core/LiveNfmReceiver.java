@@ -22,10 +22,12 @@ public final class LiveNfmReceiver implements AutoCloseable {
     private volatile Pointer device;
     private volatile Pointer stream;
     private volatile Thread worker;
+    private volatile DemodulationMode requestedMode;
 
     public LiveNfmReceiver(ReceiverConfig config, ReceiverListener listener) {
         this.config = Objects.requireNonNull(config);
         this.listener = Objects.requireNonNull(listener);
+        this.requestedMode = config.mode();
     }
 
     public synchronized void start() {
@@ -38,6 +40,12 @@ public final class LiveNfmReceiver implements AutoCloseable {
     public synchronized void tune(long frequencyHz) {
         if (device == null) return;
         check(SoapyNative.INSTANCE.SoapySDRDevice_setFrequency(device, RX, 0, frequencyHz, null), "Could not retune radio");
+    }
+
+    public synchronized void tune(long frequencyHz, DemodulationMode mode) {
+        requestedMode = mode == null ? DemodulationMode.NFM : mode;
+        tune(frequencyHz);
+        listener.onStatus(requestedMode + " at " + formatFrequency(frequencyHz));
     }
 
     private void receive() {
@@ -65,13 +73,18 @@ public final class LiveNfmReceiver implements AutoCloseable {
             var buffers = new Pointer[]{memory};
             var flags = new IntByReference();
             var time = new LongByReference();
-            var demod = new AnalogDemodulator(config.sampleRate(), config.audioSampleRate(), config.mode());
+            var demod = new AnalogDemodulator(config.sampleRate(), config.audioSampleRate(), requestedMode);
+            var activeMode = requestedMode;
             int spectrumCountdown = 0;
             listener.onStatus(config.mode() + " at " + formatFrequency(config.frequencyHz()));
 
             while (running.get()) {
                 int read = nativeApi.SoapySDRDevice_readStream(device, stream, buffers, elements, flags, time, 250_000);
                 if (read > 0) {
+                    if (activeMode != requestedMode) {
+                        activeMode = requestedMode;
+                        demod = new AnalogDemodulator(config.sampleRate(), config.audioSampleRate(), activeMode);
+                    }
                     var iq = memory.getFloatArray(0, read * 2);
                     var pcm = demod.accept(iq, read);
                     if (pcm.length > 0) audio.write(pcm, 0, pcm.length);

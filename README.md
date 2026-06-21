@@ -21,10 +21,13 @@ without exposing a wall of cryptic errors.
 - Multiple-device data model for parallel receivers
 - HackRF One detection verified on macOS
 - Hardware-tested live HackRF stream, FFT waterfall, tuner controls, and initial NFM/WFM/AM/SSB/CW audio
+- Debounced strong-signal auto-tuning with spectrum-based decoder suggestions
+- Virtual tuning wheel plus calibrated spectrum/waterfall, cursor, and click-to-tune
 - Decoder plugin SPI using Java `ServiceLoader`
 - Staged decoder downloads with SHA-256 verification and atomic activation
 - Visible P25 Phase 1/2, DMR, and NXDN package/license status
 - One-click official JMBE Creator download, pinned checksum verification, local build, validation, and activation
+- Validated external GopherTrunk P25 Phase 1/2 engine registration (process integration remains roadmap work)
 - Manual location and local-frequency discovery foundation with explicit data provenance
 - Goal-first Quick Start with live hardware/audio/decoder readiness
 - Persistent Simple and Lab modes with common analog examples and remembered tuning

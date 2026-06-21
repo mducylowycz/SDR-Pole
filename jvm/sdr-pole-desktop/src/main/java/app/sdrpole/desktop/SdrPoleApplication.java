@@ -12,6 +12,7 @@ import app.sdrpole.core.FrequencyPreset;
 import app.sdrpole.core.ReceiverConfig;
 import app.sdrpole.core.ReceiverListener;
 import app.sdrpole.core.RfFrontendSettings;
+import app.sdrpole.core.P25EngineManager;
 import app.sdrpole.core.p25.P25SystemConfig;
 import app.sdrpole.core.p25.P25SystemStore;
 import app.sdrpole.core.SdrDevice;
@@ -33,6 +34,7 @@ import javafx.stage.FileChooser;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.prefs.Preferences;
+import java.util.concurrent.atomic.AtomicLong;
 import javax.sound.sampled.AudioFormat;
 import javax.sound.sampled.AudioSystem;
 import javax.sound.sampled.DataLine;
@@ -49,6 +51,7 @@ public final class SdrPoleApplication extends Application {
     private final DecoderLibraryManager libraries = new DecoderLibraryManager();
     private final Preferences preferences = Preferences.userNodeForPackage(SdrPoleApplication.class);
     private final P25SystemStore p25SystemStore = new P25SystemStore();
+    private final P25EngineManager p25Engine = new P25EngineManager();
     private final BorderPane shell = new BorderPane();
     private final Label status = muted("Ready — connect one or more SDRs and choose Devices");
     private List<SdrDevice> devices = List.of();
@@ -568,12 +571,32 @@ public final class SdrPoleApplication extends Application {
         else controls.getChildren().add(muted("Recommended settings: 2 MS/s • 24 dB gain • mono system audio"));
 
         var waterfall = new WaterfallView(900, 300);
+        var initialHz = new AtomicLong(Math.round(Double.parseDouble(frequency.getText().trim()) * 1_000_000));
+        waterfall.setTuning(initialHz.get(), sampleRate.getValue());
+        var signalAssist = new SignalAssistPane();
         var receiverStatus = label("Stopped", 15, true);
         var level = new ProgressBar(0);
         level.setPrefWidth(180);
         var listen = primaryButton("Listen");
         var stop = secondaryButton("Stop");
         stop.setDisable(true);
+
+        java.util.function.LongConsumer tuneTo = hz -> {
+            if (hz <= 0) return;
+            initialHz.set(hz);
+            frequency.setText(String.format("%.5f", hz / 1_000_000.0));
+            waterfall.setTuning(hz, sampleRate.getValue());
+            var receiver = activeReceiver;
+            if (receiver != null) receiver.tune(hz, mode.getValue());
+        };
+        signalAssist.setOnTuneDelta(delta -> tuneTo.accept(initialHz.get() + delta));
+        waterfall.setOnTune(tuneTo);
+        signalAssist.setOnAutoTune(signal -> {
+            mode.getSelectionModel().select(signal.hint().mode());
+            tuneTo.accept(signal.frequencyHz());
+            receiverStatus.setText("Auto-tuned " + String.format("%.5f MHz", signal.frequencyHz() / 1e6));
+        });
+        sampleRate.valueProperty().addListener((o, old, value) -> waterfall.setTuning(initialHz.get(), value));
 
         listen.setOnAction(event -> {
             var selected = deviceChoice.getValue();
@@ -583,6 +606,8 @@ public final class SdrPoleApplication extends Application {
             }
             try {
                 long hz = Math.round(Double.parseDouble(frequency.getText().trim()) * 1_000_000);
+                initialHz.set(hz);
+                waterfall.setTuning(hz, sampleRate.getValue());
                 preferences.put("lastFrequencyMhz", frequency.getText().trim());
                 preferences.put("lastMode", mode.getValue().name());
                 closeReceiver();
@@ -595,7 +620,10 @@ public final class SdrPoleApplication extends Application {
                                 48_000, mode.getValue(), frontend),
                         new ReceiverListener() {
                             @Override public void onStatus(String message) { Platform.runLater(() -> receiverStatus.setText(message)); }
-                            @Override public void onSpectrum(float[] powerDb) { waterfall.accept(powerDb); }
+                            @Override public void onSpectrum(float[] powerDb) {
+                                waterfall.accept(powerDb);
+                                signalAssist.analyze(powerDb, initialHz.get(), sampleRate.getValue());
+                            }
                             @Override public void onLevel(double rms) { Platform.runLater(() -> level.setProgress(Math.min(1, rms * 5))); }
                             @Override public void onError(String friendlyMessage, Throwable cause) {
                                 Platform.runLater(() -> receiverStatus.setText(friendlyMessage));
@@ -623,7 +651,7 @@ public final class SdrPoleApplication extends Application {
                 ? "P25 requires a frame decoder plus a compatible voice package; JMBE alone is not a signal decoder."
                 : "Not sure where to begin? Try a NOAA Weather example. Reception depends on your location, antenna, and local signals.");
         help.setWrapText(true);
-        return page(new VBox(16, title, subtitle, controls, waterfall, transport, help));
+        return page(new VBox(16, title, subtitle, controls, signalAssist, waterfall, transport, help));
     }
 
     private Node decoderRow(DecoderCatalogEntry decoder) {
@@ -633,6 +661,7 @@ public final class SdrPoleApplication extends Application {
         var text = new VBox(4, name, description, muted("License: " + decoder.license()));
         HBox.setHgrow(text, Priority.ALWAYS);
         if (decoder.id().equals("jmbe")) return jmbeRow(decoder, text);
+        if (decoder.id().startsWith("p25-phase")) return p25EngineRow(decoder, text);
         var button = switch (decoder.availability()) {
             case BUILT_IN -> secondaryButton("Installed");
             case READY_TO_INSTALL -> primaryButton("Install");
@@ -644,6 +673,31 @@ public final class SdrPoleApplication extends Application {
         row.setAlignment(Pos.CENTER_LEFT);
         row.setPadding(new Insets(16));
         row.setStyle(panelStyle());
+        return row;
+    }
+
+    private Node p25EngineRow(DecoderCatalogEntry decoder, VBox text) {
+        var installed = p25Engine.enginePath();
+        if (installed.isPresent()) {
+            text.getChildren().add(accent("Package installed: GopherTrunk engine " + p25Engine.version()));
+            text.getChildren().add(muted("Runtime bridge pending—this is not yet an operational decoder status."));
+        }
+        else text.getChildren().add(muted("Requires a compatible external protocol engine; JMBE alone is voice conversion."));
+        var choose = installed.isPresent() ? secondaryButton("Package installed") : primaryButton("Select engine");
+        choose.setDisable(installed.isPresent());
+        choose.setOnAction(event -> {
+            var picker = new FileChooser();
+            picker.setTitle("Select GopherTrunk executable");
+            var selected = picker.showOpenDialog(shell.getScene().getWindow());
+            if (selected == null) return;
+            try {
+                p25Engine.installGopherTrunk(selected.toPath(), "0.4.8");
+                status.setText("P25 Phase 1 and Phase 2 engine installed and registered");
+                show("Decoders");
+            } catch (Exception error) { status.setText("P25 engine installation failed: " + error.getMessage()); }
+        });
+        var row = new HBox(14, text, choose);
+        row.setAlignment(Pos.CENTER_LEFT); row.setPadding(new Insets(16)); row.setStyle(panelStyle());
         return row;
     }
 
