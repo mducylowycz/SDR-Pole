@@ -56,7 +56,7 @@ Build a self-contained macOS installer:
 ```
 
 See [architecture](docs/ARCHITECTURE.md), [product research](docs/PRODUCT_RESEARCH.md),
-[product specification](docs/PRODUCT_SPEC.md), [technology decisions](docs/TECHNOLOGY.md),
+[product specification](docs/PRODUCT_SPEC.md), [usability research](docs/UX_RESEARCH.md), [technology decisions](docs/TECHNOLOGY.md),
 [roadmap](docs/ROADMAP.md), and [contributing](CONTRIBUTING.md).
 
 ## Decoder and hardware policy

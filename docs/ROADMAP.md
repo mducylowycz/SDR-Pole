@@ -21,6 +21,9 @@ Checked items are implemented in the repository, not merely mocked in the UI.
 - [x] Privacy-redacted support report clipboard action
 - [ ] First-run antenna and local-frequency walkthrough
 - [ ] Integrated repair actions for drivers, audio devices, and occupied radios
+- [x] Guided P25 site wizard with plain-language simulcast choice
+- [x] Editable/removable persistent system library
+- [x] End-to-end Listening Health path with next repair action
 
 ## Receiver engine
 

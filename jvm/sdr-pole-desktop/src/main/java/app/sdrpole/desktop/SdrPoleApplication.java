@@ -120,7 +120,13 @@ public final class SdrPoleApplication extends Application {
     }
 
     private Node statusBar() {
-        var bar = new HBox(status);
+        var spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        var diagnose = new Button("Explain status");
+        diagnose.setStyle("-fx-background-color: transparent; -fx-text-fill: " + ACCENT + "; -fx-font-weight: bold;");
+        diagnose.setOnAction(event -> navigateTo("Diagnostics"));
+        var bar = new HBox(status, spacer, diagnose);
+        bar.setAlignment(Pos.CENTER_LEFT);
         bar.setPadding(new Insets(9, 18, 9, 18));
         bar.setStyle("-fx-background-color: #0f1820; -fx-border-color: #263540 transparent transparent transparent;");
         return bar;
@@ -135,8 +141,7 @@ public final class SdrPoleApplication extends Application {
             case "Nearby" -> nearbyPage();
             case "Decoders" -> decodersPage();
             case "Systems" -> systemsPage();
-            case "Live Calls" -> featurePage("Live Calls", "Every active call, understandable at a glance",
-                    "Hold a talkgroup", "Priority scanning", "Per-call volume", "Encrypted-call indicator");
+            case "Live Calls" -> listeningHealthPage();
             case "Spectrum" -> spectrumPage();
             case "Recordings" -> featurePage("Recordings", "Search calls by system, talkgroup, radio, or time",
                     "Automatic naming", "Retention rules", "Export audio", "Call metadata");
@@ -158,7 +163,8 @@ public final class SdrPoleApplication extends Application {
                 });
         ((Button) quick.getChildren().getLast()).setDisable(devices.isEmpty());
         var trunked = actionCard("Listen to a trunked system", "Guided site, control-channel, talkgroup, and decoder setup.",
-                "P25 frame decoder is still under construction", "View readiness", this::preflightDialog);
+                configuredSystems.isEmpty() ? "Add your first site" : configuredSystems.size() + " site(s) saved",
+                configuredSystems.isEmpty() ? "Guided setup" : "Open systems", () -> navigateTo("Systems"));
         HBox.setHgrow(quick, Priority.ALWAYS);
         HBox.setHgrow(trunked, Priority.ALWAYS);
 
@@ -227,63 +233,179 @@ public final class SdrPoleApplication extends Application {
     }
 
     private Node systemsPage() {
-        var title = label("P25 system setup", 28, true);
-        var subtitle = muted("Add one site with its primary control channel. SDR-Pole keeps the protocol details underneath the guided form.");
-        var systemName = new TextField();
-        systemName.setPromptText("Example: County Public Safety");
-        var siteName = new TextField();
-        siteName.setPromptText("Example: North Site");
-        var control = new TextField();
-        control.setPromptText("Control frequency in MHz");
-        var latitude = new TextField(preferences.get("location.latitude", ""));
-        latitude.setPromptText("Optional latitude");
-        var longitude = new TextField(preferences.get("location.longitude", ""));
-        longitude.setPromptText("Optional longitude");
-        var modulation = new ComboBox<P25SystemConfig.Modulation>();
-        modulation.getItems().addAll(P25SystemConfig.Modulation.values());
-        modulation.getSelectionModel().select(P25SystemConfig.Modulation.C4FM);
-        modulation.setPrefWidth(165);
-        var trafficLimit = new Spinner<Integer>(1, 32, 3);
-        trafficLimit.setPrefWidth(90);
-        var formState = muted("Nothing is saved until the fields pass validation.");
-        var save = primaryButton("Save site and show on map");
-        save.setOnAction(event -> {
-            try {
-                long controlHz = Math.round(Double.parseDouble(control.getText().trim()) * 1_000_000);
-                GeoPoint point = null;
-                if (!latitude.getText().isBlank() || !longitude.getText().isBlank()) {
-                    point = new GeoPoint(Double.parseDouble(latitude.getText().trim()), Double.parseDouble(longitude.getText().trim()));
-                }
-                var config = new P25SystemConfig(systemName.getText().trim(), siteName.getText().trim(),
-                        List.of(controlHz), modulation.getValue(), trafficLimit.getValue(), point);
-                configuredSystems.removeIf(existing -> existing.systemName().equalsIgnoreCase(config.systemName())
-                        && existing.siteName().equalsIgnoreCase(config.siteName()));
-                configuredSystems.add(config);
-                p25SystemStore.save(configuredSystems);
-                formState.setText("Saved " + config.systemName() + " / " + config.siteName() + " at " + String.format("%.5f MHz", controlHz / 1_000_000.0));
-                status.setText("P25 site configuration saved locally");
-                if (point != null) navigateTo("Map");
-            } catch (Exception error) {
-                formState.setText("Fix this site: " + error.getMessage());
+        var title = label("Your radio systems", 28, true);
+        var subtitle = muted("A system keeps its sites, control channels, map locations, and future talkgroups together—no playlist archaeology.");
+        var add = primaryButton("Add P25 site");
+        add.setOnAction(event -> showP25SiteWizard(null));
+        var importButton = secondaryButton("Import (coming next)");
+        importButton.setDisable(true);
+        var actions = new HBox(10, add, importButton);
+        var systems = new VBox(10);
+        if (configuredSystems.isEmpty()) {
+            systems.getChildren().add(emptyState("No systems yet", "Use Add P25 site. SDR-Pole asks only for a name and control frequency; location is optional."));
+        } else {
+            configuredSystems.forEach(config -> systems.getChildren().add(systemCard(config)));
+        }
+        var health = secondaryButton("Why can't I hear calls?");
+        health.setOnAction(event -> navigateTo("Live Calls"));
+        return page(new VBox(16, title, subtitle, actions, systems, health));
+    }
+
+    private Node systemCard(P25SystemConfig config) {
+        var frequency = config.controlFrequenciesHz().getFirst() / 1_000_000.0;
+        var location = config.location() == null ? "Location not added" :
+                String.format("%.4f, %.4f", config.location().latitude(), config.location().longitude());
+        var summary = muted("Site: " + config.siteName() + "  •  Control: " + String.format("%.5f MHz", frequency)
+                + "  •  " + (config.modulation() == P25SystemConfig.Modulation.LSM_SIMULCAST ? "Simulcast/LSM" : "C4FM")
+                + "  •  " + location);
+        summary.setWrapText(true);
+        var copy = new VBox(5, label(config.systemName(), 18, true), summary);
+        HBox.setHgrow(copy, Priority.ALWAYS);
+        var map = secondaryButton(config.location() == null ? "Add location" : "Map");
+        map.setOnAction(event -> {
+            if (config.location() == null) showP25SiteWizard(config);
+            else {
+                if (siteMap == null) siteMap = new SiteMapView();
+                siteMap.centerOn(config.location(), 11);
+                navigateTo("Map");
             }
         });
-        var firstRow = new HBox(10, field("System name", systemName), field("Site name", siteName), field("Control channel", control));
-        HBox.setHgrow(systemName, Priority.ALWAYS);
-        HBox.setHgrow(siteName, Priority.ALWAYS);
-        var secondRow = new HBox(10, field("Modulation", modulation), field("Traffic limit", trafficLimit),
-                field("Latitude", latitude), field("Longitude", longitude));
+        var edit = secondaryButton("Edit");
+        edit.setOnAction(event -> showP25SiteWizard(config));
+        var remove = secondaryButton("Remove");
+        remove.setOnAction(event -> removeSystem(config));
+        var row = new HBox(12, copy, map, edit, remove);
+        row.setAlignment(Pos.CENTER_LEFT);
+        row.setPadding(new Insets(16));
+        row.setStyle(panelStyle());
+        return row;
+    }
 
-        var pipeline = new VBox(8,
-                readinessRow("Radio and protected RF front end", !devices.isEmpty(), devices.isEmpty() ? "Connect a radio" : "Ready"),
-                readinessRow("Site and control-channel configuration", !configuredSystems.isEmpty(), configuredSystems.isEmpty() ? "Add a site above" : configuredSystems.size() + " site(s) configured"),
-                readinessRow("P25 C4FM/LSM symbol recovery", false, "DSP implementation pending"),
-                readinessRow("P25 frame and CRC decoding", false, "Implementation pending"),
-                readinessRow("Band plans, grants, neighbors, calls", true, "State engine implemented and tested"),
-                readinessRow("IMBE/AMBE voice", libraries.jmbePath().isPresent(), libraries.jmbePath().isPresent() ? "JMBE ready for decoded frames" : "Install JMBE"));
-        var explanation = muted("Phase 2 systems still use a Phase 1 control channel. Choose C4FM for a conventional/non-simulcast site and LSM for simulcast. SDR-Pole will not start a fake decoder while symbol/frame recovery is unfinished.");
-        explanation.setWrapText(true);
-        return page(new VBox(15, title, subtitle, firstRow, secondRow, save, formState,
-                new Separator(), label("Control-channel pipeline", 19, true), pipeline, explanation));
+    private void showP25SiteWizard(P25SystemConfig existing) {
+        var dialog = new Dialog<P25SystemConfig>();
+        dialog.setTitle(existing == null ? "Add a P25 site" : "Edit P25 site");
+        dialog.setHeaderText("Three plain-language decisions—SDR-Pole handles the decoder details");
+        dialog.initOwner(shell.getScene().getWindow());
+        var saveType = new ButtonType("Save site", ButtonBar.ButtonData.OK_DONE);
+        dialog.getDialogPane().getButtonTypes().addAll(ButtonType.CANCEL, saveType);
+
+        var systemName = new TextField(existing == null ? "" : existing.systemName());
+        systemName.setPromptText("County Public Safety");
+        var siteName = new TextField(existing == null ? "" : existing.siteName());
+        siteName.setPromptText("North Site");
+        var control = new TextField(existing == null ? "" : String.format("%.5f", existing.controlFrequenciesHz().getFirst() / 1_000_000.0));
+        control.setPromptText("851.11250");
+        var simulcast = new CheckBox("This is a simulcast site");
+        simulcast.setStyle("-fx-text-fill: #17242d;");
+        simulcast.setSelected(existing != null && existing.modulation() == P25SystemConfig.Modulation.LSM_SIMULCAST);
+        simulcast.setTooltip(new Tooltip("Choose this only when the system directory calls the site simulcast; otherwise leave it off."));
+        var latitude = new TextField(existing != null && existing.location() != null ? Double.toString(existing.location().latitude()) : preferences.get("location.latitude", ""));
+        var longitude = new TextField(existing != null && existing.location() != null ? Double.toString(existing.location().longitude()) : preferences.get("location.longitude", ""));
+        latitude.setPromptText("Optional"); longitude.setPromptText("Optional");
+        var error = new Label("");
+        error.setStyle("-fx-text-fill: #b42318; -fx-font-weight: bold;");
+        error.setWrapText(true);
+
+        var form = new VBox(10,
+                dialogSection("1  Name it", "Use names you recognize; protocol identifiers will be learned from the control channel.",
+                        new HBox(10, dialogField("System", systemName), dialogField("Site", siteName))),
+                dialogSection("2  Add the control signal", "Phase 1 and Phase 2 systems use a Phase 1 control channel. Start with its primary frequency.",
+                        new HBox(10, dialogField("Control frequency (MHz)", control), simulcast)),
+                dialogSection("3  Put it on the map (optional)", "Coordinates help SDR-Pole choose nearby sites; they are stored only on this computer.",
+                        new HBox(10, dialogField("Latitude", latitude), dialogField("Longitude", longitude))),
+                error);
+        form.setPrefWidth(680);
+        dialog.getDialogPane().setContent(form);
+
+        var saveButton = (Button) dialog.getDialogPane().lookupButton(saveType);
+        saveButton.addEventFilter(javafx.event.ActionEvent.ACTION, event -> {
+            try { createP25Config(systemName, siteName, control, simulcast, latitude, longitude); }
+            catch (RuntimeException problem) { error.setText(problem.getMessage()); event.consume(); }
+        });
+        dialog.setResultConverter(button -> button == saveType
+                ? createP25Config(systemName, siteName, control, simulcast, latitude, longitude) : null);
+        dialog.showAndWait().ifPresent(config -> {
+            try {
+                if (existing != null) configuredSystems.remove(existing);
+                configuredSystems.removeIf(item -> item.systemName().equalsIgnoreCase(config.systemName())
+                        && item.siteName().equalsIgnoreCase(config.siteName()));
+                configuredSystems.add(config);
+                p25SystemStore.save(configuredSystems);
+                status.setText("Saved " + config.systemName() + " / " + config.siteName());
+                show("Systems");
+            } catch (Exception problem) {
+                status.setText("Could not save the site: " + problem.getMessage());
+            }
+        });
+    }
+
+    private P25SystemConfig createP25Config(TextField system, TextField site, TextField control,
+                                             CheckBox simulcast, TextField latitude, TextField longitude) {
+        long frequency;
+        try { frequency = Math.round(Double.parseDouble(control.getText().trim()) * 1_000_000); }
+        catch (NumberFormatException error) { throw new IllegalArgumentException("Enter a control frequency such as 851.11250 MHz"); }
+        GeoPoint point = null;
+        if (!latitude.getText().isBlank() || !longitude.getText().isBlank()) {
+            if (latitude.getText().isBlank() || longitude.getText().isBlank())
+                throw new IllegalArgumentException("Enter both latitude and longitude, or leave both blank");
+            try { point = new GeoPoint(Double.parseDouble(latitude.getText().trim()), Double.parseDouble(longitude.getText().trim())); }
+            catch (NumberFormatException error) { throw new IllegalArgumentException("Latitude and longitude must be numbers"); }
+        }
+        return new P25SystemConfig(system.getText().trim(), site.getText().trim(), List.of(frequency),
+                simulcast.isSelected() ? P25SystemConfig.Modulation.LSM_SIMULCAST : P25SystemConfig.Modulation.C4FM,
+                3, point);
+    }
+
+    private VBox dialogSection(String title, String detail, Node content) {
+        var description = new Label(detail);
+        description.setWrapText(true);
+        description.setStyle("-fx-text-fill: #4f6470;");
+        var box = new VBox(5, new Label(title), description, content);
+        ((Label) box.getChildren().getFirst()).setStyle("-fx-font-size: 16px; -fx-font-weight: bold;");
+        box.setPadding(new Insets(10));
+        box.setStyle("-fx-background-color: #f3f7f9; -fx-background-radius: 8;");
+        return box;
+    }
+
+    private VBox dialogField(String title, Node control) { return new VBox(3, new Label(title), control); }
+
+    private void removeSystem(P25SystemConfig config) {
+        var alert = new Alert(Alert.AlertType.CONFIRMATION,
+                "Remove " + config.systemName() + " / " + config.siteName() + "? This does not affect the radio or decoder libraries.",
+                ButtonType.CANCEL, ButtonType.OK);
+        alert.setTitle("Remove P25 site");
+        alert.setHeaderText("Remove this saved site?");
+        alert.showAndWait().filter(ButtonType.OK::equals).ifPresent(button -> {
+            try {
+                configuredSystems.remove(config);
+                p25SystemStore.save(configuredSystems);
+                status.setText("Removed " + config.systemName() + " / " + config.siteName());
+                show("Systems");
+            } catch (Exception problem) { status.setText("Could not remove site: " + problem.getMessage()); }
+        });
+    }
+
+    private Node listeningHealthPage() {
+        boolean radio = !devices.isEmpty();
+        boolean site = !configuredSystems.isEmpty();
+        boolean voice = libraries.jmbePath().isPresent();
+        var title = label("Listening health", 28, true);
+        var subtitle = muted("Instead of silent failure, follow the signal from antenna to speaker and fix the first incomplete step.");
+        var path = new VBox(8,
+                readinessRow("1  Radio", radio, radio ? friendlyDeviceName(devices.getFirst()) + " detected" : discovery.lastDiagnostic()),
+                readinessRow("2  Protected RF settings", radio, radio ? "Safe device profile will be applied" : "Waiting for a radio"),
+                readinessRow("3  P25 site", site, site ? configuredSystems.size() + " saved site(s)" : "Add a system and control channel"),
+                readinessRow("4  Control-channel signal", false, site ? "Symbol/frame decoder is not implemented yet" : "Needs a configured site first"),
+                readinessRow("5  Talkgroup grant", false, "Waiting for the control-channel decoder"),
+                readinessRow("6  Voice library", voice, voice ? "JMBE installed" : "Install JMBE from Decoders"),
+                readinessRow("7  Speaker", hasAudioOutput(), hasAudioOutput() ? "Audio output available" : "No compatible output"));
+        var fix = primaryButton(!radio ? "Connect a radio" : !site ? "Add a P25 site" : !voice ? "Install JMBE" : "View decoder status");
+        fix.setOnAction(event -> navigateTo(!radio ? "Devices" : !site ? "Systems" : !voice ? "Decoders" : "Diagnostics"));
+        var analog = secondaryButton("Analog listening works now");
+        analog.setOnAction(event -> navigateTo("Spectrum"));
+        var note = muted("Seeing call metadata without audio is not treated as success. Future decoder stages will report sync, CRC, grant, encryption, vocoder, and audio state independently.");
+        note.setWrapText(true);
+        return page(new VBox(15, title, subtitle, path, new HBox(10, fix, analog), note));
     }
 
     private Node mapPage() {
