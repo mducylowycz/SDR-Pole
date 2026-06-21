@@ -6,6 +6,7 @@ import javafx.application.Platform;
 import javafx.scene.canvas.Canvas;
 import javafx.scene.image.Image;
 import javafx.scene.input.MouseEvent;
+import javafx.scene.input.KeyCode;
 import javafx.scene.layout.Pane;
 import javafx.scene.paint.Color;
 import javafx.scene.text.Font;
@@ -47,6 +48,9 @@ final class SiteMapView extends Pane {
     private Consumer<GeoPoint> locationHandler = ignored -> {};
 
     SiteMapView() {
+        setFocusTraversable(true);
+        setAccessibleText("Interactive listening-area map");
+        setAccessibleHelp("Use arrow keys to pan, plus or minus to zoom, and Enter to select the map center.");
         getChildren().add(canvas);
         setMinHeight(430);
         setPrefHeight(520);
@@ -67,6 +71,18 @@ final class SiteMapView extends Pane {
         setOnScroll(event -> {
             int next = Math.max(2, Math.min(18, zoom + (event.getDeltaY() > 0 ? 1 : -1)));
             if (next != zoom) { zoom = next; draw(); }
+            event.consume();
+        });
+        setOnKeyPressed(event -> {
+            if (event.getCode() == KeyCode.LEFT) pan(-80, 0);
+            else if (event.getCode() == KeyCode.RIGHT) pan(80, 0);
+            else if (event.getCode() == KeyCode.UP) pan(0, -80);
+            else if (event.getCode() == KeyCode.DOWN) pan(0, 80);
+            else if (event.getCode() == KeyCode.ADD || event.getCode() == KeyCode.EQUALS) { zoom = Math.min(18, zoom + 1); draw(); }
+            else if (event.getCode() == KeyCode.SUBTRACT || event.getCode() == KeyCode.MINUS) { zoom = Math.max(2, zoom - 1); draw(); }
+            else if (event.getCode() == KeyCode.ENTER || event.getCode() == KeyCode.SPACE) {
+                selectedLocation = center(); locationHandler.accept(selectedLocation); draw();
+            } else return;
             event.consume();
         });
     }

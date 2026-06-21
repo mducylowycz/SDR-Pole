@@ -30,6 +30,7 @@ final class ScannerPane extends VBox {
         var rows = new VBox(7);
         for (var band : FrequencyBandCatalog.northAmerica()) {
             var include = new CheckBox();
+            include.setAccessibleText("Include " + band.name() + " in scan plan");
             include.selectedProperty().addListener((o, old, value) -> { if (value) selected.add(band); else selected.remove(band); });
             var copy = new VBox(2, title(band.name(), 15), muted(band.rangeLabel() + "  •  " + band.mode() + "  •  " + band.commonUse()));
             HBox.setHgrow(copy, Priority.ALWAYS);

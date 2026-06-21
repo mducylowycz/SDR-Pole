@@ -17,6 +17,7 @@ import app.sdrpole.core.RfFrontendSettings;
 import app.sdrpole.core.P25EngineManager;
 import app.sdrpole.core.ScanPlan;
 import app.sdrpole.core.ScanRange;
+import app.sdrpole.core.AuditLog;
 import app.sdrpole.core.p25.P25SystemConfig;
 import app.sdrpole.core.p25.P25SystemStore;
 import app.sdrpole.core.SdrDevice;
@@ -40,6 +41,7 @@ import java.util.ArrayList;
 import java.util.prefs.Preferences;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.Map;
 import javax.sound.sampled.AudioFormat;
 import javax.sound.sampled.AudioSystem;
 import javax.sound.sampled.DataLine;
@@ -57,6 +59,7 @@ public final class SdrPoleApplication extends Application {
     private final Preferences preferences = Preferences.userNodeForPackage(SdrPoleApplication.class);
     private final P25SystemStore p25SystemStore = new P25SystemStore();
     private final P25EngineManager p25Engine = new P25EngineManager();
+    private final AuditLog audit = new AuditLog();
     private final BorderPane shell = new BorderPane();
     private final Label status = muted("Ready — connect one or more SDRs and choose Devices");
     private List<SdrDevice> devices = List.of();
@@ -69,6 +72,7 @@ public final class SdrPoleApplication extends Application {
     private SiteMapView siteMap;
 
     @Override public void start(Stage stage) {
+        audit.record("application", "start", "success", Map.of("version", "0.2.0", "offlineCapable", true));
         advancedMode = preferences.getBoolean("advancedMode", false);
         try { configuredSystems.addAll(p25SystemStore.load()); }
         catch (Exception error) { status.setText("Saved P25 sites could not be loaded: " + error.getMessage()); }
@@ -118,6 +122,8 @@ public final class SdrPoleApplication extends Application {
                 "Home", "Trunking Workstation", "Scanner", "Frequency Library",
                 "Calls & Recordings", "Setup & Diagnostics");
         navigation = new ListView<>(items);
+        navigation.setAccessibleText("Main navigation");
+        navigation.setAccessibleHelp("Use arrow keys to choose a workspace, then press Enter.");
         var nav = navigation;
         nav.setPrefWidth(180);
         nav.getSelectionModel().selectFirst();
@@ -200,6 +206,7 @@ public final class SdrPoleApplication extends Application {
             preferences.put("location.latitude", Double.toString(point.latitude()));
             preferences.put("location.longitude", Double.toString(point.longitude()));
             status.setText("Location saved—directory results will use this map point");
+            audit.record("configuration", "listening area changed", "success", Map.of("location", "redacted"));
         }, () -> refreshDevices(false), () -> navigateTo("Systems"), () -> navigateTo("Live Calls")));
     }
 
@@ -226,6 +233,7 @@ public final class SdrPoleApplication extends Application {
         preferences.put("scanner.ranges", ScanPlan.encode(bands.stream()
                 .map(b -> new ScanRange(b.startHz(), b.endHz(), b.stepHz(), b.mode())).toList()));
         preferences.putBoolean("scanner.auto", true);
+        audit.record("scanner", "scan plan loaded", "success", Map.of("rangeCount", bands.size(), "firstRange", first.name()));
         navigateTo("Spectrum");
     }
 
@@ -851,6 +859,7 @@ public final class SdrPoleApplication extends Application {
                     download.setText("Reinstall");
                     download.setDisable(false);
                     status.setText("JMBE " + JmbeInstaller.VERSION + " installed, validated, and activated");
+                    audit.record("package", "JMBE install", "success", Map.of("version", JmbeInstaller.VERSION));
                 });
             } catch (Exception error) {
                 Platform.runLater(() -> {
@@ -858,6 +867,7 @@ public final class SdrPoleApplication extends Application {
                     progress.setManaged(false);
                     download.setDisable(false);
                     status.setText("JMBE installation failed: " + error.getMessage());
+                    audit.record("package", "JMBE install", "failure", Map.of("errorType", error.getClass().getSimpleName()));
                 });
             }
         });
@@ -888,7 +898,8 @@ public final class SdrPoleApplication extends Application {
                 check("JMBE voice library", libraries.jmbePath().isPresent(), libraries.jmbePath().isPresent() ? "Installed and validated" : "Optional package not installed"),
                 check("P25 runtime bridge", false, p25Engine.enginePath().isPresent()
                         ? "GopherTrunk package registered; SDR-Pole process integration remains unfinished"
-                        : "No P25 protocol engine package is registered"));
+                        : "No P25 protocol engine package is registered"),
+                check("Local audit log", true, "Sensitive fields are redacted • " + audit.path().getFileName()));
         var copy = secondaryButton("Copy support report");
         copy.setOnAction(event -> copySupportReport());
         return page(new VBox(16, title, muted("Plain-language checks with repair actions—no wall of USB errors."), checks, copy));
@@ -931,6 +942,7 @@ public final class SdrPoleApplication extends Application {
         status.setText("Searching USB and network SDR devices…");
         Thread.ofVirtual().start(() -> {
             var found = discovery.discover();
+            audit.record("hardware", "device discovery", found.isEmpty() ? "no-device" : "success", Map.of("deviceCount", found.size()));
             Platform.runLater(() -> {
                 devices = found;
                 status.setText(found.isEmpty() ? discovery.lastDiagnostic() :

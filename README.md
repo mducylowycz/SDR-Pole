@@ -41,6 +41,9 @@ without exposing a wall of cryptic errors.
 - Click-to-select map location with saved trunking-site pins
 - Bundled named frequency-range guide and true multi-range strong-signal scanning
 - Cross-platform Gradle wrapper and GitHub Actions build matrix
+- CycloneDX 1.6 SBOM generation, checksum-verified dependencies, pinned CI actions, CodeQL, and Dependabot
+- Privacy-redacted rotating local operational audit log
+- Keyboard-accessible navigation, map selection, tuning wheel, and waterfall controls
 
 Planned support includes HackRF, RTL-SDR, Airspy, SDRplay, LimeSDR, PlutoSDR,
 USRP, and network receivers through SoapySDR drivers.
@@ -61,7 +64,9 @@ Build a self-contained macOS installer:
 ./gradlew :sdr-pole-desktop:macInstaller
 ```
 
-See [architecture](docs/ARCHITECTURE.md), [frequency data sources](docs/DATA_SOURCES.md), [product research](docs/PRODUCT_RESEARCH.md),
+See [government readiness](docs/GOVERNMENT_READINESS.md), [security policy](SECURITY.md),
+[threat model](docs/THREAT_MODEL.md), [privacy](docs/PRIVACY.md), [accessibility](docs/ACCESSIBILITY.md),
+[architecture](docs/ARCHITECTURE.md), [frequency data sources](docs/DATA_SOURCES.md), [product research](docs/PRODUCT_RESEARCH.md),
 [product specification](docs/PRODUCT_SPEC.md), [usability research](docs/UX_RESEARCH.md), [technology decisions](docs/TECHNOLOGY.md),
 [roadmap](docs/ROADMAP.md), and [contributing](CONTRIBUTING.md).
 

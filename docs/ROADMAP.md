@@ -11,6 +11,15 @@ Checked items are implemented in the repository, not merely mocked in the UI.
 - [x] Curated decoder catalog with license visibility
 - [x] Windows, macOS, and Linux CI build verification
 - [ ] Signed release automation and auto-updater
+- [x] CycloneDX 1.6 aggregate SBOM in CI
+- [x] Gradle dependency checksum verification metadata
+- [x] Immutable commit pins for CI actions
+- [x] CodeQL extended security scanning and Dependabot policy
+- [x] Privacy-redacted rotating local audit log
+- [x] Threat model and government-readiness evidence matrix
+- [ ] Signed build provenance and SBOM attestations
+- [ ] Independent security assessment and remediation SLA
+- [ ] Platform signing/notarization identities and protected release environment
 
 ## Beginner experience
 
@@ -75,4 +84,6 @@ Checked items are implemented in the repository, not merely mocked in the UI.
 - [x] Interactive pan/zoom site map with control-channel markers
 - [ ] Feed decoded P25 neighbor-site events into persisted map layers
 - [ ] One-click support report with sensitive-data redaction
-- [ ] Accessible keyboard navigation, screen-reader labels, and localization
+- [x] Keyboard and accessible-help foundations for navigation, map, tuning, and scanner
+- [ ] Manual Section 508 assistive-technology testing and completed ACR/VPAT
+- [ ] Localization

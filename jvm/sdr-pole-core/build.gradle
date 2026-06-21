@@ -3,6 +3,7 @@ plugins { id 'java-library' }
 dependencies {
     api project(':sdr-pole-plugin-api')
     implementation 'com.fasterxml.jackson.core:jackson-databind:2.19.1'
+    implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.19.1'
     implementation 'net.java.dev.jna:jna:5.17.0'
     testImplementation platform('org.junit:junit-bom:5.13.1')
     testImplementation 'org.junit.jupiter:junit-jupiter'

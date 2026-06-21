@@ -9,6 +9,7 @@ import javafx.scene.layout.Pane;
 import javafx.scene.paint.Color;
 import javafx.scene.text.Font;
 import java.util.function.LongConsumer;
+import javafx.scene.input.KeyCode;
 
 /** Combined spectrum and waterfall with calibrated scale, cursor and click tuning. */
 final class WaterfallView extends Pane {
@@ -21,6 +22,9 @@ final class WaterfallView extends Pane {
     private LongConsumer tuneHandler = ignored -> {};
 
     WaterfallView(int width, int height) {
+        setFocusTraversable(true);
+        setAccessibleText("Live spectrum and waterfall");
+        setAccessibleHelp("Click a signal to tune. Use left and right arrow keys for small tuning steps.");
         setMinHeight(height); setPrefHeight(height); setPrefWidth(width);
         canvas.widthProperty().bind(widthProperty()); canvas.heightProperty().bind(heightProperty());
         getChildren().add(canvas);
@@ -29,6 +33,12 @@ final class WaterfallView extends Pane {
         setOnMouseMoved(e -> draw(e.getX()));
         setOnMouseExited(e -> draw(Double.NaN));
         setOnMouseClicked(e -> tuneHandler.accept(frequencyAt(e.getX())));
+        setOnKeyPressed(e -> {
+            if (e.getCode() == KeyCode.LEFT) tuneHandler.accept(centerHz - Math.max(100, sampleRate / 400));
+            else if (e.getCode() == KeyCode.RIGHT) tuneHandler.accept(centerHz + Math.max(100, sampleRate / 400));
+            else return;
+            e.consume();
+        });
         setStyle("-fx-background-color: #03070b; -fx-border-color: #27404e; -fx-border-radius: 8;");
     }
 

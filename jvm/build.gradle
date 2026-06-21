@@ -1,6 +1,15 @@
 plugins {
     id 'base'
     id 'org.openjfx.javafxplugin' version '0.1.0' apply false
+    id 'org.cyclonedx.bom' version '3.2.4'
+}
+
+tasks.named('cyclonedxBom') {
+    projectType = "application"
+    componentName = "SDR-Pole"
+    includeBuildSystem = true
+    jsonOutput.set(file("build/reports/cyclonedx/sdr-pole-sbom.json"))
+    xmlOutput.set(file("build/reports/cyclonedx/sdr-pole-sbom.xml"))
 }
 
 allprojects {

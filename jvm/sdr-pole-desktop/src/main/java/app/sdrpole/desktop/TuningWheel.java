@@ -6,6 +6,7 @@ import javafx.scene.layout.StackPane;
 import javafx.scene.paint.Color;
 import javafx.scene.text.Font;
 import java.util.function.LongConsumer;
+import javafx.scene.input.KeyCode;
 
 /** Mouse/trackpad tuning wheel with selectable step size. */
 final class TuningWheel extends StackPane {
@@ -14,6 +15,9 @@ final class TuningWheel extends StackPane {
     private LongConsumer handler = ignored -> {};
 
     TuningWheel() {
+        setFocusTraversable(true);
+        setAccessibleText("Virtual tuning wheel");
+        setAccessibleHelp("Use left and right arrow keys, mouse click, or scroll to tune by the selected step.");
         getChildren().add(canvas); setPrefSize(190, 64);
         draw(false);
         addEventFilter(ScrollEvent.SCROLL, event -> {
@@ -23,6 +27,12 @@ final class TuningWheel extends StackPane {
         });
         setOnMouseClicked(event -> handler.accept(event.getX() >= getWidth() / 2 ? stepHz : -stepHz));
         setOnMouseEntered(e -> draw(true)); setOnMouseExited(e -> draw(false));
+        setOnKeyPressed(event -> {
+            if (event.getCode() == KeyCode.LEFT || event.getCode() == KeyCode.DOWN) handler.accept(-stepHz);
+            else if (event.getCode() == KeyCode.RIGHT || event.getCode() == KeyCode.UP) handler.accept(stepHz);
+            else return;
+            event.consume();
+        });
     }
 
     void setStepHz(long stepHz) { this.stepHz = Math.max(1, stepHz); draw(false); }
