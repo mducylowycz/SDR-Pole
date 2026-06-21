@@ -12,6 +12,7 @@ of agency approval, certification, authorization, or operational suitability.
 | Component transparency | CycloneDX 1.6 JSON/XML SBOM generated in CI and retained as an artifact | Release-linked signed SBOM attestation |
 | Vulnerability discovery | Tests on three operating systems, scheduled/push/PR CodeQL extended analysis, Dependabot | Defined severity/remediation SLAs and external penetration test |
 | Release integrity | Pinned decoder checksums and atomic package activation | Platform code-signing identities, notarization, signed update channel and provenance attestation |
+| Repository integrity | `main` rejects deletion and force-pushes for all users; Actions permits only GitHub-owned, SHA-pinned actions with read-only default tokens | Enforced code-owner review when a second trusted maintainer joins |
 | Privacy | Local-first storage, no telemetry, redacted support report and audit fields | Formal privacy threshold analysis for each deployment |
 | Accountability | Local rotating JSONL operational audit log | Agency-selected retention, export, time synchronization, centralized log integration |
 | Accessibility | Keyboard map, waterfall, tuning wheel and navigation; accessible names/help | Manual assistive-technology testing and a completed VPAT/ACR |

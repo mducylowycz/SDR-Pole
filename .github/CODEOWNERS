@@ -1,0 +1,6 @@
+# Security-sensitive defaults. This becomes an enforced review boundary if
+# required code-owner reviews are enabled when the maintainer team grows.
+* @mducylowycz
+/.github/ @mducylowycz
+/SECURITY.md @mducylowycz
+/jvm/gradle/verification-metadata.xml @mducylowycz

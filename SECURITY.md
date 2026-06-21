@@ -16,8 +16,14 @@ contract exists yet.
 
 - Java dependencies and build plugins are SHA-256 verified by Gradle metadata.
 - CI actions are pinned to immutable commit SHAs.
+- GitHub Actions accepts only GitHub-owned actions and rejects unpinned references.
+- Workflow tokens default to read-only and cannot approve pull requests.
+- The default branch rejects deletion and force-pushes for administrators and contributors.
+- Repository ownership is declared in `.github/CODEOWNERS`.
 - Every build runs tests on Windows, macOS, and Linux and generates a CycloneDX SBOM.
 - CodeQL performs extended security analysis on pushes, pull requests, and weekly.
+- Dependabot vulnerability updates, secret scanning, push protection, and private
+  vulnerability reporting are enabled.
 - Decoder packages require HTTPS, a fixed version and checksum, staging, validation,
   atomic activation, and license disclosure.
 - Operational audit events are local JSON Lines with sensitive-field redaction,
