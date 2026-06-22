@@ -23,6 +23,8 @@ without exposing a wall of cryptic errors.
 - HackRF One detection verified on macOS
 - HackRF-aware inventory for board, serial, firmware/API compatibility, native tools, safe receive range, and HackRF Pro capabilities
 - Hardware-tested live HackRF stream, FFT waterfall, tuner controls, and initial NFM/WFM/AM/SSB/CW audio
+- Selectable persistent audio output with an in-app test tone
+- Stateful complex anti-alias decimation and mode-aware audio conditioning for clean narrow-channel listening from wide native sample rates
 - Debounced strong-signal auto-tuning with spectrum-based decoder suggestions
 - Accelerated drag/scroll tuning wheel with fine/fast modifiers, keyboard control, calibrated waterfall cursor, and click-to-tune
 - Decoder plugin SPI using Java `ServiceLoader`
@@ -62,6 +64,8 @@ USRP, and network receivers through SoapySDR drivers.
 
 See [HackRF platform integration](docs/HACKRF_PLATFORM.md) for the component model,
 safety decisions, current implementation, and hardware-aware roadmap.
+The [June 2026 feature audit](docs/FEATURE_AUDIT_2026.md) tracks operational behavior,
+material gaps, competitive lessons, and implementation order across the whole product.
 
 ## Build
 

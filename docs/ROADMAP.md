@@ -30,6 +30,7 @@ Checked items are implemented in the repository, not merely mocked in the UI.
 - [x] Privacy-redacted support report clipboard action
 - [ ] First-run antenna and local-frequency walkthrough
 - [ ] Integrated repair actions for drivers, audio devices, and occupied radios
+- [x] Selectable persistent audio output with an immediate test tone
 - [x] Guided P25 site wizard with plain-language simulcast choice
 - [x] Editable/removable persistent system library
 - [x] Flexible P25 CSV site import with common directory-header aliases
@@ -65,7 +66,8 @@ Checked items are implemented in the repository, not merely mocked in the UI.
 - [x] SoapySDR native streaming bridge
 - [ ] Multiple simultaneous IQ streams
 - [x] FFT spectrum and waterfall
-- [ ] Channelizer, resampler, squelch, and automatic gain
+- [x] Initial stateful complex anti-alias decimator and bounded audio level conditioning
+- [ ] Production FIR/polyphase channelizer, resampler, and user-adjustable squelch
 - [x] Initial live center-channel NFM audio output
 - [x] Initial center-channel NFM, WFM, AM, USB, LSB, and CW demodulation
 - [ ] Production channel filters, resampler, squelch, stereo WFM, and selectable audio output

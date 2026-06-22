@@ -29,6 +29,17 @@ clocking and can run as separate receiver sessions.
 
 ## DSP pipeline
 
+Live analog audio now inserts a stateful complex integrate-and-decimate stage before
+demodulation. This is particularly important for HackRF: capturing at the recommended
+8 MS/s and selecting one sample every output period would alias wideband energy into
+the audible channel. The current stage averages each decimation interval, then applies
+mode-aware demodulation, audio low-pass conditioning, and bounded level control.
+
+This is an initial anti-alias implementation, not the final multi-channel engine. The
+next receiver architecture uses a designed FIR/polyphase channelizer so multiple
+channels inside one tuner passband share filtering work and retain quantified stop-band
+performance. See the [GNU Radio channelizer model](https://wiki.gnuradio.org/index.php/Polyphase_Channelizer).
+
 Implemented now:
 
 - CF32 streaming through the SoapySDR C ABI via JNA

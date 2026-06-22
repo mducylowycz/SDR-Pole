@@ -17,6 +17,7 @@ import app.sdrpole.core.P25EngineManager;
 import app.sdrpole.core.ScanPlan;
 import app.sdrpole.core.ScanSpeed;
 import app.sdrpole.core.AuditLog;
+import app.sdrpole.core.AudioOutputService;
 import app.sdrpole.core.p25.P25SystemConfig;
 import app.sdrpole.core.p25.P25SystemStore;
 import app.sdrpole.core.p25.P25RuntimeConfigurator;
@@ -51,10 +52,6 @@ import java.util.prefs.Preferences;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.Map;
-import javax.sound.sampled.AudioFormat;
-import javax.sound.sampled.AudioSystem;
-import javax.sound.sampled.DataLine;
-import javax.sound.sampled.SourceDataLine;
 
 public final class SdrPoleApplication extends Application {
     private static final String BG = "#0b1118";
@@ -74,6 +71,7 @@ public final class SdrPoleApplication extends Application {
     private final FrequencyDatabase frequencyDatabase = new FrequencyDatabase();
     private final LocalSurveyRecorder localSurvey = new LocalSurveyRecorder(frequencyDatabase);
     private final AuditLog audit = new AuditLog();
+    private final AudioOutputService audioOutputs = new AudioOutputService();
     private final BorderPane shell = new BorderPane();
     private final Label status = muted("Ready — connect one or more SDRs and choose Devices");
     private List<SdrDevice> devices = List.of();
@@ -221,8 +219,8 @@ public final class SdrPoleApplication extends Application {
                 readinessRow("Audio output", hasAudioOutput(), hasAudioOutput() ? "System output is available" : "No compatible output line found"),
                 readinessRow("Analog listening", !devices.isEmpty(), devices.isEmpty() ? "Waiting for a radio" : "Ready now"),
                 readinessRow("JMBE voice library", libraries.jmbePath().isPresent(), libraries.jmbePath().isPresent() ? "Installed" : "Optional—install from Decoders"),
-                readinessRow("P25 trunking", false, p25Engine.enginePath().isPresent()
-                        ? "Engine package installed; runtime bridge still pending" : "Protocol engine package is not installed"));
+                readinessRow("P25 trunking", p25Runtime.running(), p25Runtime.running() ? "Local decoder process is running"
+                        : p25Engine.enginePath().isPresent() ? "Engine installed—choose or discover a system to start" : "Install the P25 engine from Decoder packages"));
         var refresh = secondaryButton(devices.isEmpty() ? "Find my radio" : "Refresh radios");
         refresh.setOnAction(event -> refreshDevices(false));
 
@@ -304,15 +302,10 @@ public final class SdrPoleApplication extends Application {
     }
 
     private Node setupPage() {
-        var radio = primaryButton("Radios"); radio.setOnAction(e -> navigateTo("Devices"));
-        var decoders = primaryButton("Decoder packages"); decoders.setOnAction(e -> navigateTo("Decoders"));
-        var diagnostics = primaryButton("Run diagnostics"); diagnostics.setOnAction(e -> navigateTo("Diagnostics"));
-        return page(new VBox(16, label("Setup & Diagnostics", 30, true),
-                muted("Setup is kept out of listening workflows unless something needs attention."),
-                readinessRow("Radio", !devices.isEmpty(), devices.isEmpty() ? discovery.lastDiagnostic() : devices.size() + " detected"),
-                readinessRow("Audio", hasAudioOutput(), hasAudioOutput() ? "Ready" : "Needs attention"),
-                readinessRow("Voice library", libraries.jmbePath().isPresent(), libraries.jmbePath().isPresent() ? "JMBE installed" : "Install JMBE"),
-                new HBox(10, radio, decoders, diagnostics)));
+        return page(new SetupPane(!devices.isEmpty(), devices.isEmpty() ? discovery.lastDiagnostic() : devices.size() + " detected",
+                libraries.jmbePath().isPresent(), preferences.get("audio.output", ""),
+                () -> navigateTo("Devices"), () -> navigateTo("Decoders"), () -> navigateTo("Diagnostics"),
+                value -> preferences.put("audio.output", value), status::setText));
     }
 
     private java.util.Optional<GeoPoint> savedLocation() {
@@ -565,15 +558,15 @@ public final class SdrPoleApplication extends Application {
                 readinessRow("1  Radio", radio, radio ? friendlyDeviceName(devices.getFirst()) + " detected" : discovery.lastDiagnostic()),
                 readinessRow("2  Protected RF settings", radio, radio ? "Safe device profile will be applied" : "Waiting for a radio"),
                 readinessRow("3  P25 site", site, site ? configuredSystems.size() + " saved site(s)" : "Add a system and control channel"),
-                readinessRow("4  Control-channel signal", false, site ? "Symbol/frame decoder is not implemented yet" : "Needs a configured site first"),
-                readinessRow("5  Talkgroup grant", false, "Waiting for the control-channel decoder"),
+                readinessRow("4  Decoder process", p25Runtime.running(), p25Runtime.running() ? "Local P25 engine is running" : "Start or discover a P25 system"),
+                readinessRow("5  Control sync and grants", false, p25Runtime.running() ? "Waiting for verified sync/grant telemetry" : "Waiting for the decoder process"),
                 readinessRow("6  Voice library", voice, voice ? "JMBE installed" : "Install JMBE from Decoders"),
                 readinessRow("7  Speaker", hasAudioOutput(), hasAudioOutput() ? "Audio output available" : "No compatible output"));
         var fix = primaryButton(!radio ? "Connect a radio" : !site ? "Add a P25 site" : !voice ? "Install JMBE" : "View decoder status");
         fix.setOnAction(event -> navigateTo(!radio ? "Devices" : !site ? "Systems" : !voice ? "Decoders" : "Diagnostics"));
         var analog = secondaryButton("Analog listening works now");
         analog.setOnAction(event -> navigateTo("Spectrum"));
-        var note = muted("Seeing call metadata without audio is not treated as success. Future decoder stages will report sync, CRC, grant, encryption, vocoder, and audio state independently.");
+        var note = muted("Seeing a running process or call metadata without audio is not treated as success. Sync, grants, encryption, vocoder, and speaker output remain separate health stages.");
         note.setWrapText(true);
         return page(new VBox(15, title, subtitle, path, new HBox(10, fix, analog), note));
     }
@@ -814,7 +807,7 @@ public final class SdrPoleApplication extends Application {
                         : RfFrontendSettings.safeDefaults(selected);
                 activeReceiver = new LiveNfmReceiver(
                         new ReceiverConfig(selected, hz, sampleRate.getValue(), gain.getValue(), automaticGain.isSelected(),
-                                48_000, mode.getValue(), frontend),
+                                48_000, mode.getValue(), frontend, preferences.get("audio.output", "")),
                         new ReceiverListener() {
                             @Override public void onStatus(String message) { Platform.runLater(() -> receiverStatus.setText(message)); }
                             @Override public void onSpectrum(float[] powerDb) {
@@ -1003,8 +996,8 @@ public final class SdrPoleApplication extends Application {
                 check("SDR provider", !devices.isEmpty(), devices.isEmpty() ? discovery.lastDiagnostic() : devices.size() + " radio(s) detected"),
                 check("Audio output", hasAudioOutput(), hasAudioOutput() ? "Compatible system output available" : "No compatible 48 kHz output found"),
                 check("JMBE voice library", libraries.jmbePath().isPresent(), libraries.jmbePath().isPresent() ? "Installed and validated" : "Optional package not installed"),
-                check("P25 runtime bridge", false, p25Engine.enginePath().isPresent()
-                        ? "GopherTrunk package registered; SDR-Pole process integration remains unfinished"
+                check("P25 runtime bridge", p25Runtime.running(), p25Runtime.running() ? "Local decoder process is running"
+                        : p25Engine.enginePath().isPresent() ? "GopherTrunk package registered; process is currently stopped"
                         : "No P25 protocol engine package is registered"),
                 check("Local audit log", true, "Sensitive fields are redacted • " + audit.path().getFileName()));
         var copy = secondaryButton("Copy support report");
@@ -1022,22 +1015,20 @@ public final class SdrPoleApplication extends Application {
                 Audio output: %s
                 JMBE: %s
                 P25 engine package: %s
-                P25 runtime bridge: not operational
+                P25 runtime: %s
                 """.formatted(
                 System.getProperty("os.name"), System.getProperty("os.arch"), System.getProperty("java.version"),
                 devices.size(), discovery.lastDiagnostic(), hasAudioOutput() ? "available" : "unavailable",
                 libraries.jmbePath().isPresent() ? "installed" : "not installed",
-                p25Engine.enginePath().isPresent() ? "registered" : "not installed");
+                p25Engine.enginePath().isPresent() ? "registered" : "not installed",
+                p25Runtime.running() ? "running" : "stopped");
         var content = new ClipboardContent();
         content.putString(report);
         Clipboard.getSystemClipboard().setContent(content);
         status.setText("Support report copied—radio serial numbers and location were omitted");
     }
 
-    private static boolean hasAudioOutput() {
-        var format = new AudioFormat(48_000, 16, 1, true, false);
-        return AudioSystem.isLineSupported(new DataLine.Info(SourceDataLine.class, format));
-    }
+    private boolean hasAudioOutput() { return audioOutputs.available(); }
 
     private Node featurePage(String titleText, String subtitleText, String... features) {
         var grid = new FlowPane(12, 12);

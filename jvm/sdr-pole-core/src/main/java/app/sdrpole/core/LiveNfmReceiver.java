@@ -6,10 +6,7 @@ import com.sun.jna.ptr.IntByReference;
 import com.sun.jna.ptr.LongByReference;
 
 import javax.sound.sampled.AudioFormat;
-import javax.sound.sampled.AudioSystem;
 import javax.sound.sampled.SourceDataLine;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -64,8 +61,7 @@ public final class LiveNfmReceiver implements AutoCloseable {
             check(nativeApi.SoapySDRDevice_activateStream(device, stream, 0, 0, 0), "Radio stream activation failed");
 
             var audioFormat = new AudioFormat(config.audioSampleRate(), 16, 1, true, false);
-            audio = AudioSystem.getSourceDataLine(audioFormat);
-            audio.open(audioFormat, config.audioSampleRate());
+            audio = new AudioOutputService().open(config.audioOutput(), audioFormat, config.audioSampleRate());
             audio.start();
 
             int elements = (int) Math.max(4096, Math.min(32768, nativeApi.SoapySDRDevice_getStreamMTU(device, stream)));
@@ -73,7 +69,7 @@ public final class LiveNfmReceiver implements AutoCloseable {
             var buffers = new Pointer[]{memory};
             var flags = new IntByReference();
             var time = new LongByReference();
-            var demod = new AnalogDemodulator(config.sampleRate(), config.audioSampleRate(), requestedMode);
+            var demod = new AnalogAudioDemodulator(config.sampleRate(), config.audioSampleRate(), requestedMode);
             var activeMode = requestedMode;
             int spectrumCountdown = 0;
             listener.onStatus(config.mode() + " at " + formatFrequency(config.frequencyHz()));
@@ -83,7 +79,7 @@ public final class LiveNfmReceiver implements AutoCloseable {
                 if (read > 0) {
                     if (activeMode != requestedMode) {
                         activeMode = requestedMode;
-                        demod = new AnalogDemodulator(config.sampleRate(), config.audioSampleRate(), activeMode);
+                        demod = new AnalogAudioDemodulator(config.sampleRate(), config.audioSampleRate(), activeMode);
                     }
                     var iq = memory.getFloatArray(0, read * 2);
                     var pcm = demod.accept(iq, read);
@@ -163,68 +159,4 @@ public final class LiveNfmReceiver implements AutoCloseable {
 
     private static String formatFrequency(long hz) { return String.format("%.5f MHz", hz / 1_000_000.0); }
 
-    private static final class AnalogDemodulator {
-        private final double inputRate;
-        private final double outputRate;
-        private final DemodulationMode mode;
-        private final double deemphasisAlpha;
-        private double outputPhase;
-        private double bfoPhase;
-        private float previousI = 1;
-        private float previousQ;
-        private double filtered;
-        private double dc;
-        private double rms;
-
-        AnalogDemodulator(double inputRate, double outputRate, DemodulationMode mode) {
-            this.inputRate = inputRate;
-            this.outputRate = outputRate;
-            this.mode = mode;
-            this.deemphasisAlpha = Math.exp(-1.0 / (inputRate * (mode == DemodulationMode.WFM ? 75e-6 : 50e-6)));
-        }
-
-        byte[] accept(float[] iq, int count) {
-            int expected = Math.max(1, (int) Math.ceil(count * outputRate / inputRate));
-            var out = ByteBuffer.allocate(expected * 2 + 4).order(ByteOrder.LITTLE_ENDIAN);
-            double sumSquares = 0;
-            int produced = 0;
-            for (int n = 0; n < count; n++) {
-                float i = iq[n * 2], q = iq[n * 2 + 1];
-                double sample;
-                if (mode == DemodulationMode.NFM || mode == DemodulationMode.WFM) {
-                    double discriminator = Math.atan2(previousI * q - previousQ * i, previousI * i + previousQ * q);
-                    double deviation = mode == DemodulationMode.WFM ? 75_000 : 5_000;
-                    sample = discriminator * inputRate / (2 * Math.PI * deviation);
-                    filtered = deemphasisAlpha * filtered + (1 - deemphasisAlpha) * sample;
-                    sample = filtered;
-                } else if (mode == DemodulationMode.AM) {
-                    var envelope = Math.hypot(i, q);
-                    dc = dc * 0.9999 + envelope * 0.0001;
-                    sample = (envelope - dc) * 3.0;
-                } else {
-                    double tone = mode == DemodulationMode.CW ? 700 : 1_500;
-                    double direction = mode == DemodulationMode.LSB ? -1 : 1;
-                    sample = i * Math.cos(bfoPhase) - q * Math.sin(bfoPhase) * direction;
-                    bfoPhase += direction * 2 * Math.PI * tone / inputRate;
-                    if (bfoPhase > Math.PI) bfoPhase -= 2 * Math.PI;
-                    if (bfoPhase < -Math.PI) bfoPhase += 2 * Math.PI;
-                }
-                previousI = i; previousQ = q;
-                outputPhase += outputRate;
-                if (outputPhase >= inputRate) {
-                    outputPhase -= inputRate;
-                    sample = Math.max(-1, Math.min(1, sample));
-                    out.putShort((short) (sample * 32767));
-                    sumSquares += sample * sample;
-                    produced++;
-                }
-            }
-            rms = produced == 0 ? 0 : Math.sqrt(sumSquares / produced);
-            var bytes = new byte[out.position()];
-            out.flip(); out.get(bytes);
-            return bytes;
-        }
-
-        double lastRms() { return rms; }
-    }
 }
