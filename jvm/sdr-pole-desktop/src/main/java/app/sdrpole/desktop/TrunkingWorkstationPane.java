@@ -17,7 +17,7 @@ final class TrunkingWorkstationPane extends VBox {
     TrunkingWorkstationPane(List<SdrDevice> devices, List<P25SystemConfig> systems, Optional<GeoPoint> location,
                             Consumer<GeoPoint> locationSelected, Runnable refresh, Runnable manage,
                             Runnable updateDirectory, String directoryStatus,
-                            Runnable autoConfigure, Runnable readiness) {
+                            Runnable discoverWithoutDirectory, Runnable autoConfigure, Runnable readiness) {
         setSpacing(14);
         var map = new SiteMapView(); location.ifPresent(point -> map.centerOn(point, 9));
         systems.stream().filter(config -> config.location() != null).forEach(config -> map.addMarker(
@@ -41,13 +41,16 @@ final class TrunkingWorkstationPane extends VBox {
         automatic.setAccessibleHelp("Select the nearest saved P25 site, configure connected radios, and start the local decoder engine.");
         automatic.setDisable(devices.isEmpty() || systems.isEmpty());
         automatic.setOnAction(e -> autoConfigure.run());
+        var discover = primary("Discover trunking & listen");
+        discover.setAccessibleHelp("Sweep common public-safety bands, validate a control-channel candidate locally, configure it, and listen without importing a file.");
+        discover.setDisable(devices.isEmpty()); discover.setOnAction(e -> discoverWithoutDirectory.run());
         var readyButton = primary("Check listening readiness"); readyButton.setOnAction(e -> readiness.run());
         getChildren().addAll(title("Trunking Workstation", 30), muted("Radio, map, directories, sites, decoders, and listening status in one guided workspace."),
                 title("1  Connect", 18), radio, title("2  Choose your area", 18), muted("Click once to pin your location. Drag to pan; scroll to zoom."), locationState, map,
-                title("3  Load frequency libraries", 18), sources, update,
-                title("4  Let SDR-Pole configure it", 18),
-                muted("SDR-Pole chooses the nearest saved site, assigns every connected radio, enables safe gain and frequency correction, and starts P25 locally."),
-                new HBox(10, automatic, manageButton, readyButton));
+                title("3  Start listening", 18),
+                muted("No file or account required: Discover sweeps common P25 bands and tests candidates locally. Connected directories make names and maps richer, but are optional."),
+                new HBox(10, discover, automatic, readyButton),
+                title("Optional data sources", 18), sources, new HBox(10, update, manageButton));
     }
 
     private static HBox source(String name, String detail, String state) {

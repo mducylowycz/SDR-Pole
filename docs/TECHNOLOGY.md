@@ -66,6 +66,20 @@ Phase 2 slots, encryption indicators, pending grants, and call expiry. It starts
 with decoded control events; C4FM/LSM symbol recovery, framing, CRC/FEC, and
 TSBK/MBT parsing remain separate required stages.
 
+## Fast scanning
+
+Ordinary SDRs scan with overlapping FFT windows covering 72% of the selected
+sample rate. This replaces thousands of per-channel retunes with a few wideband
+measurements while avoiding unreliable passband edges. Turbo, Fast, Balanced,
+and Deep dwell modes trade speed for weak-signal confidence.
+
+HackRF uses the official firmware-assisted `hackrf_sweep` path for arbitrary
+custom ranges and full 1–6000 MHz discovery. SDR-Pole always invokes sweep mode
+with the RF amplifier and antenna-port power disabled, ranks bins relative to the
+measured noise floor, merges adjacent peaks, and labels results `MEASURED` rather
+than claiming an identity. Decoder/frame synchronization remains the second
+stage for protocol confirmation.
+
 Encrypted calls may be detected, labeled, logged, or muted. SDR-Pole will not
 attempt to defeat encryption.
 

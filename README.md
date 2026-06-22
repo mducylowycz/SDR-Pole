@@ -23,13 +23,14 @@ without exposing a wall of cryptic errors.
 - HackRF One detection verified on macOS
 - Hardware-tested live HackRF stream, FFT waterfall, tuner controls, and initial NFM/WFM/AM/SSB/CW audio
 - Debounced strong-signal auto-tuning with spectrum-based decoder suggestions
-- Virtual tuning wheel plus calibrated spectrum/waterfall, cursor, and click-to-tune
+- Accelerated drag/scroll tuning wheel with fine/fast modifiers, keyboard control, calibrated waterfall cursor, and click-to-tune
 - Decoder plugin SPI using Java `ServiceLoader`
 - Staged decoder downloads with SHA-256 verification and atomic activation
 - Visible P25 Phase 1/2, DMR, and NXDN package/license status
 - One-click official JMBE Creator download, pinned checksum verification, local build, validation, and activation
 - One-click local GopherTrunk P25 Phase 1/2 startup with generated configuration
 - Automatic nearest-site selection, simulcast/CQPSK settings, multi-radio role assignment, safe gain, AFC, and one-radio virtual voice tuners
+- Zero-import P25 discovery: one click hardware-sweeps common public-safety bands, ranks candidates, generates configuration, and starts local validation
 - Flexible CSV import for P25 site and control-channel directory exports
 - Location-driven RadioReference v18 network updates using official Census county resolution, with nearest-site ordering and a persistent offline cache
 - Automatic P25 talkgroup names, descriptions, and encryption status, persisted offline and exported directly to the P25 runtime
@@ -48,6 +49,7 @@ without exposing a wall of cryptic errors.
 - Goal-based Trunking Workstation and Scanner navigation instead of implementation-oriented menus
 - Click-to-select map location with saved trunking-site pins
 - Bundled named frequency-range guide and true multi-range strong-signal scanning
+- Turbo wide-FFT scan windows, arbitrary custom ranges, and safe native HackRF 1–6000 MHz hardware sweep with one-click result switching
 - Cross-platform Gradle wrapper and GitHub Actions build matrix
 - CycloneDX 1.6 SBOM generation, checksum-verified dependencies, pinned CI actions, CodeQL, and Dependabot
 - Privacy-redacted rotating local operational audit log

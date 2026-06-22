@@ -19,7 +19,7 @@ SDR-Pole is one approachable, cross-platform application for trunked-radio liste
 ### Scanner
 
 1. Detect radios and explain conflicts or missing drivers.
-2. Find or import a system near a chosen location.
+2. Press **Discover trunking & listen**; SDR-Pole sweeps locally and tests control-channel candidates without requiring a file or account. Optional directories add names and map context.
 3. Run a preflight covering bandwidth, tuners, audio, protocol decoder, and vocoder.
 4. Press Listen; the scheduler assigns control and traffic channels across available tuners.
 5. Show calls, talkgroups, radios, encryption state, recording state, and plain-language failures.

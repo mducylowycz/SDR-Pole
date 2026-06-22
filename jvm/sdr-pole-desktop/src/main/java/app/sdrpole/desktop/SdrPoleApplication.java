@@ -9,14 +9,13 @@ import app.sdrpole.core.LiveNfmReceiver;
 import app.sdrpole.core.JmbeInstaller;
 import app.sdrpole.core.GeoPoint;
 import app.sdrpole.core.FrequencyPreset;
-import app.sdrpole.core.FrequencyBand;
-import app.sdrpole.core.FrequencyBandCatalog;
+import app.sdrpole.core.FastScanPlan;
 import app.sdrpole.core.ReceiverConfig;
 import app.sdrpole.core.ReceiverListener;
 import app.sdrpole.core.RfFrontendSettings;
 import app.sdrpole.core.P25EngineManager;
 import app.sdrpole.core.ScanPlan;
-import app.sdrpole.core.ScanRange;
+import app.sdrpole.core.ScanSpeed;
 import app.sdrpole.core.AuditLog;
 import app.sdrpole.core.p25.P25SystemConfig;
 import app.sdrpole.core.p25.P25SystemStore;
@@ -87,6 +86,7 @@ public final class SdrPoleApplication extends Application {
     private List<FrequencyChannel> localChannels = List.of();
     private SiteMapView siteMap;
     private LocationDirectoryController directoryController;
+    private ScanAutomationController scanAutomation;
 
     @Override public void start(Stage stage) {
         audit.record("application", "start", "success", Map.of("version", "0.2.0", "offlineCapable", true));
@@ -102,6 +102,9 @@ public final class SdrPoleApplication extends Application {
         directoryController = new LocationDirectoryController(preferences, configuredSystems, configuredTalkgroups,
                 p25SystemStore, p25TalkgroupStore, new RadioReferenceDirectoryClient(), audit, this::savedLocation,
                 () -> shell.getScene().getWindow(), status::setText, () -> show("Trunking Workstation"));
+        scanAutomation = new ScanAutomationController(preferences, () -> devices, this::savedLocation, configuredSystems,
+                p25SystemStore, localSurvey, audit, this::closeReceiver, this::autoConfigureP25, status::setText,
+                this::navigateTo, this::refreshLocalChannels);
         shell.setStyle("-fx-background-color: " + BG + ";");
         shell.setTop(topBar());
         shell.setLeft(navigation());
@@ -236,7 +239,7 @@ public final class SdrPoleApplication extends Application {
             audit.record("configuration", "listening area changed", "success", Map.of("location", "redacted"));
             directoryController.refreshIfNeeded(point);
         }, () -> refreshDevices(false), () -> navigateTo("Systems"), directoryController::connect,
-                directoryController.summary(), this::autoConfigureP25,
+                directoryController.summary(), scanAutomation::discoverP25, this::autoConfigureP25,
                 () -> navigateTo("Live Calls")));
     }
 
@@ -283,34 +286,15 @@ public final class SdrPoleApplication extends Application {
 
     private Node scannerPage() {
         return page(new ScannerPane(devices, savedLocation(), localChannels, () -> navigateTo("Trunking Workstation"),
-                band -> openBandInTuner(band, false), bands -> {
-                    openBandsInTuner(bands);
+                scanAutomation::listen, bands -> {
+                    scanAutomation.scan(bands);
                     status.setText("Scanner loaded " + bands.size() + " named range(s)");
-                }, status::setText));
+                }, scanAutomation::hardwareSweep, status::setText));
     }
 
     private void refreshLocalChannels(GeoPoint point) {
         try { localChannels = frequencyDatabase.channelsNear(point, 100, 250); }
         catch (Exception error) { status.setText("Local frequency search failed: " + error.getMessage()); }
-    }
-
-    private void openBandInTuner(FrequencyBand band, boolean scan) {
-        preferences.put("lastFrequencyMhz", String.format("%.5f", band.startHz() / 1e6));
-        preferences.put("lastMode", band.mode().name());
-        preferences.put("scanner.ranges", scan ? ScanPlan.encode(List.of(new ScanRange(band.startHz(), band.endHz(), band.stepHz(), band.mode()))) : "");
-        preferences.putBoolean("scanner.auto", scan);
-        navigateTo("Spectrum");
-    }
-
-    private void openBandsInTuner(List<FrequencyBand> bands) {
-        var first = bands.getFirst();
-        preferences.put("lastFrequencyMhz", String.format("%.5f", first.startHz() / 1e6));
-        preferences.put("lastMode", first.mode().name());
-        preferences.put("scanner.ranges", ScanPlan.encode(bands.stream()
-                .map(b -> new ScanRange(b.startHz(), b.endHz(), b.stepHz(), b.mode())).toList()));
-        preferences.putBoolean("scanner.auto", true);
-        audit.record("scanner", "scan plan loaded", "success", Map.of("rangeCount", bands.size(), "firstRange", first.name()));
-        navigateTo("Spectrum");
     }
 
     private Node frequencyLibraryPage() {
@@ -758,7 +742,11 @@ public final class SdrPoleApplication extends Application {
         var signalAssist = new SignalAssistPane();
         boolean requestedRangeScan = preferences.getBoolean("scanner.auto", false);
         var scanRanges = ScanPlan.decode(preferences.get("scanner.ranges", ""));
-        var scanPlan = scanRanges.isEmpty() ? null : new ScanPlan(scanRanges);
+        var scanSpeed = new ComboBox<ScanSpeed>();
+        scanSpeed.getItems().addAll(ScanSpeed.values());
+        try { scanSpeed.getSelectionModel().select(ScanSpeed.valueOf(preferences.get("scanner.speed", ScanSpeed.FAST.name()))); }
+        catch (IllegalArgumentException ignored) { scanSpeed.getSelectionModel().select(ScanSpeed.FAST); }
+        scanSpeed.valueProperty().addListener((o, old, value) -> preferences.put("scanner.speed", value.name()));
         var rangeScanning = new AtomicBoolean(false);
         signalAssist.setAutoTuneEnabled(requestedRangeScan);
         var receiverStatus = label("Stopped", 15, true);
@@ -791,6 +779,7 @@ public final class SdrPoleApplication extends Application {
                     Platform.runLater(() -> status.setText("Signal heard, but survey history could not save: " + problem.getMessage()));
                 }
             });
+            scanAutomation.validateP25Candidate(signal);
         });
         sampleRate.valueProperty().addListener((o, old, value) -> waterfall.setTuning(initialHz.get(), value));
 
@@ -826,18 +815,21 @@ public final class SdrPoleApplication extends Application {
                             }
                         });
                 activeReceiver.start();
-                if (requestedRangeScan && scanPlan != null) {
+                if (requestedRangeScan && !scanRanges.isEmpty()) {
+                    var fastPlan = new FastScanPlan(scanRanges, sampleRate.getValue());
+                    int dwellMilliseconds = scanSpeed.getValue().dwellMilliseconds();
                     rangeScanning.set(true);
-                    receiverStatus.setText("Scanning " + scanRanges.size() + " named range(s)");
+                    receiverStatus.setText("Fast scanning " + fastPlan.windowCount() + " FFT windows");
                     Thread.ofVirtual().start(() -> {
                         while (rangeScanning.get() && activeReceiver != null) {
-                            var step = scanPlan.next();
+                            var step = fastPlan.next();
                             Platform.runLater(() -> {
                                 mode.getSelectionModel().select(step.mode());
-                                tuneTo.accept(step.frequencyHz());
-                                receiverStatus.setText("Scanning range " + step.rangeNumber() + "/" + step.rangeCount());
+                                tuneTo.accept(step.centerFrequencyHz());
+                                receiverStatus.setText("Fast sweep • range " + step.rangeNumber() + "/" + step.rangeCount()
+                                        + " • " + fastPlan.windowCount() + " windows");
                             });
-                            try { Thread.sleep(650); }
+                            try { Thread.sleep(dwellMilliseconds); }
                             catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); break; }
                         }
                     });
@@ -859,7 +851,7 @@ public final class SdrPoleApplication extends Application {
             receiverStatus.setText("Stopped");
         });
 
-        var transport = new HBox(10, listen, stop, receiverStatus, muted("Audio level"), level);
+        var transport = new HBox(10, listen, stop, field("Scan speed", scanSpeed), receiverStatus, muted("Audio level"), level);
         transport.setAlignment(Pos.CENTER_LEFT);
         var help = muted(advancedMode
                 ? "P25 requires a frame decoder plus a compatible voice package; JMBE alone is not a signal decoder."

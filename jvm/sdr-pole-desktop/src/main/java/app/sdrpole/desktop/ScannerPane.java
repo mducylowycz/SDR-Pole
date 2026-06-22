@@ -10,6 +10,8 @@ import javafx.geometry.Pos;
 import javafx.scene.control.Button;
 import javafx.scene.control.CheckBox;
 import javafx.scene.control.Label;
+import javafx.scene.control.TextField;
+import javafx.scene.control.ComboBox;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
@@ -17,11 +19,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Consumer;
+import app.sdrpole.core.DemodulationMode;
 
 /** Goal-focused conventional scanner. It owns presentation, not radio or persistence. */
 final class ScannerPane extends VBox {
     ScannerPane(List<SdrDevice> devices, Optional<GeoPoint> location, List<FrequencyChannel> channels, Runnable chooseLocation,
-                Consumer<FrequencyBand> listen, Consumer<List<FrequencyBand>> scan, Consumer<String> notice) {
+                Consumer<FrequencyBand> listen, Consumer<List<FrequencyBand>> scan,
+                Consumer<FrequencyBand> hardwareSweep, Consumer<String> notice) {
         setSpacing(14);
         var locationText = location.map(point -> String.format("Location: %.4f, %.4f", point.latitude(), point.longitude()))
                 .orElse("No location selected yet");
@@ -42,9 +46,30 @@ final class ScannerPane extends VBox {
         }
         var auto = primary("Auto-scan selected ranges");
         auto.setOnAction(e -> { if (selected.isEmpty()) notice.accept("Select at least one named range first"); else scan.accept(List.copyOf(selected)); });
+        var start = new TextField("150.0"); start.setPrefWidth(95); start.setPromptText("Start MHz");
+        var end = new TextField("174.0"); end.setPrefWidth(95); end.setPromptText("End MHz");
+        var customMode = new ComboBox<DemodulationMode>(); customMode.getItems().addAll(DemodulationMode.values()); customMode.setValue(DemodulationMode.NFM);
+        var custom = primary("Fast-scan custom range");
+        custom.setOnAction(event -> {
+            try {
+                long startHz = Math.round(Double.parseDouble(start.getText().trim()) * 1e6);
+                long endHz = Math.round(Double.parseDouble(end.getText().trim()) * 1e6);
+                if (endHz < startHz) throw new IllegalArgumentException("End must be above start");
+                var range = new FrequencyBand("Custom sweep", startHz, endHz, 12_500,
+                        customMode.getValue(), "User-selected wideband sweep", "Custom");
+                if (devices.stream().anyMatch(device -> "hackrf".equalsIgnoreCase(device.driver()))) hardwareSweep.accept(range);
+                else scan.accept(List.of(range));
+            } catch (RuntimeException problem) { notice.accept("Enter a valid start and end frequency in MHz"); }
+        });
+        var fullSweep = secondary("Sweep full HackRF range");
+        fullSweep.setDisable(devices.stream().noneMatch(device -> "hackrf".equalsIgnoreCase(device.driver())));
+        fullSweep.setOnAction(event -> hardwareSweep.accept(new FrequencyBand("Full HackRF sweep", 1_000_000, 6_000_000_000L,
+                100_000, DemodulationMode.NFM, "Hardware-assisted wideband discovery", "Receiver range")));
+        var customRow = new HBox(8, muted("From"), start, muted("to"), end, customMode, custom, fullSweep); customRow.setAlignment(Pos.CENTER_LEFT);
         var radio = status("Radio", !devices.isEmpty(), devices.isEmpty() ? "Connect one in Setup" : devices.getFirst().label());
         getChildren().addAll(title("Scanner", 30), muted("Select by purpose, not mystery numbers. Auto-scan cycles every selected range and stops on a stable strong signal."),
-                locationRow, new HBox(10, radio, auto));
+                locationRow, new HBox(10, radio, auto), title("Scan any range", 19),
+                muted("Wide FFT windows replace thousands of individual channel hops. Choose Turbo in the tuner for maximum discovery speed."), customRow);
         if (!channels.isEmpty()) {
             var exact = new VBox(7);
             channels.forEach(channel -> exact.getChildren().add(channelRow(channel, listen)));

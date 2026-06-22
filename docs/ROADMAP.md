@@ -39,6 +39,10 @@ Checked items are implemented in the repository, not merely mocked in the UI.
 - [x] Shared click-to-select map location and saved trunking-site pins
 - [x] Offline named North-American range guide
 - [x] Multi-range scan plan with stable-signal stop
+- [x] Wide-FFT Turbo/Fast/Balanced/Deep scanning across named or arbitrary ranges
+- [x] Safe native HackRF 1–6000 MHz hardware sweep with noise-relative peak ranking and SQLite persistence
+- [x] Zero-import P25 discovery across 700/800 MHz, VHF, and UHF candidate bands with automatic runtime configuration
+- [x] Accelerated drag/scroll tuning wheel with fast, fine, double-click, and keyboard gestures
 - [ ] FCC ULS bulk download, spatial join, and dated local index
 - [x] Versioned SQLite directory schema with source provenance, confidence, indexed location queries, and transactional upserts
 - [x] Automatic NOAA reference-channel seed and persistent local strong-signal survey records
