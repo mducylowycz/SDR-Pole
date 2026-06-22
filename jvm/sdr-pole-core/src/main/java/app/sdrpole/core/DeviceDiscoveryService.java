@@ -1,5 +1,7 @@
 package app.sdrpole.core;
 
+import app.sdrpole.core.hackrf.HackRfProfileService;
+
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -14,6 +16,7 @@ import java.util.concurrent.TimeUnit;
 /** Discovers all locally installed SoapySDR devices, with a HackRF fallback. */
 public final class DeviceDiscoveryService {
     private final Duration timeout;
+    private final HackRfProfileService hackRfProfiles = new HackRfProfileService();
     private volatile String lastDiagnostic = "Discovery has not run";
 
     public DeviceDiscoveryService() { this(Duration.ofSeconds(8)); }
@@ -24,22 +27,35 @@ public final class DeviceDiscoveryService {
         var devices = parseSoapyFind(soapy.output());
         if (!devices.isEmpty()) {
             lastDiagnostic = "SoapySDR found " + devices.size() + " device(s)";
-            return devices;
+            return enrichHackRf(devices);
         }
 
         var hackrf = run(resolveExecutable("hackrf_info"));
-        if (hackrf.exitCode() == 0 && hackrf.output().contains("HackRF")) {
+        if (hackrf.exitCode() == 0 && hackrf.output().contains("Found HackRF")) {
             var serial = valueAfter(hackrf.output(), "Serial number:");
             lastDiagnostic = "HackRF found through libhackrf fallback";
-            return List.of(new SdrDevice(
+            return enrichHackRf(List.of(new SdrDevice(
                     "hackrf:" + (serial.isBlank() ? "0" : serial), "hackrf", "HackRF One",
-                    serial, true, Map.of("provider", "libhackrf")));
+                    serial, true, Map.of("provider", "libhackrf"))));
         }
         lastDiagnostic = friendlyDiagnostic(soapy, hackrf);
         return List.of();
     }
 
     public String lastDiagnostic() { return lastDiagnostic; }
+
+    private List<SdrDevice> enrichHackRf(List<SdrDevice> devices) {
+        var profiles = hackRfProfiles.probe();
+        if (profiles.isEmpty()) return devices;
+        return devices.stream().map(device -> {
+            if (!"hackrf".equalsIgnoreCase(device.driver())) return device;
+            var profile = profiles.stream().filter(item -> item.serial().equalsIgnoreCase(device.serial())).findFirst()
+                    .orElse(profiles.size() == 1 ? profiles.getFirst() : null);
+            if (profile == null) return device;
+            var properties = new LinkedHashMap<>(device.properties()); properties.putAll(profile.properties());
+            return new SdrDevice(device.id(), device.driver(), profile.board(), profile.serial(), device.available(), properties);
+        }).toList();
+    }
 
     public static List<SdrDevice> parseSoapyFind(String output) {
         var result = new ArrayList<SdrDevice>();

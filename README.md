@@ -21,6 +21,7 @@ without exposing a wall of cryptic errors.
 - Vendor-neutral SoapySDR discovery and live CF32 IQ streaming with HackRF fallback
 - Multiple-device data model for parallel receivers
 - HackRF One detection verified on macOS
+- HackRF-aware inventory for board, serial, firmware/API compatibility, native tools, safe receive range, and HackRF Pro capabilities
 - Hardware-tested live HackRF stream, FFT waterfall, tuner controls, and initial NFM/WFM/AM/SSB/CW audio
 - Debounced strong-signal auto-tuning with spectrum-based decoder suggestions
 - Accelerated drag/scroll tuning wheel with fine/fast modifiers, keyboard control, calibrated waterfall cursor, and click-to-tune
@@ -42,6 +43,7 @@ without exposing a wall of cryptic errors.
 - Persistent Simple and Lab modes with common analog examples and remembered tuning
 - Privacy-redacted support report copied directly from Diagnostics
 - HackRF LNA/VGA controls with vendor-step clamping, RF-amp confirmation, and antenna-power interlock
+- Device-aware HackRF 8–20 MS/s capture with an 8 MS/s default and software channel decimation
 - Interactive pan/zoom OpenStreetMap site map with visible-tile caching and attribution
 - Tested P25 state engine for identities, band plans, neighboring sites, voice grants, slots, and encryption state
 - Guided home, device, nearby, system, call, spectrum, decoder, recording, map,
@@ -57,6 +59,9 @@ without exposing a wall of cryptic errors.
 
 Planned support includes HackRF, RTL-SDR, Airspy, SDRplay, LimeSDR, PlutoSDR,
 USRP, and network receivers through SoapySDR drivers.
+
+See [HackRF platform integration](docs/HACKRF_PLATFORM.md) for the component model,
+safety decisions, current implementation, and hardware-aware roadmap.
 
 ## Build
 

@@ -29,6 +29,7 @@ import app.sdrpole.core.directory.FrequencyChannel;
 import app.sdrpole.core.directory.FrequencyDatabase;
 import app.sdrpole.core.directory.LocalSurveyRecorder;
 import app.sdrpole.core.SdrDevice;
+import app.sdrpole.core.hackrf.HackRfTuningPolicy;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
@@ -621,6 +622,9 @@ public final class SdrPoleApplication extends Application {
     }
 
     private Node deviceRow(SdrDevice device) {
+        if ("hackrf".equalsIgnoreCase(device.driver())) return new HackRfDevicePane(device, () -> {
+            preferredDevice = device; navigateTo("Spectrum");
+        });
         var state = new Label(device.available() ? "READY" : "BUSY");
         state.setStyle("-fx-text-fill: " + (device.available() ? "#63e6a5" : "#ffb86b") + "; -fx-font-weight: bold;");
         var spacer = new Region();
@@ -664,10 +668,9 @@ public final class SdrPoleApplication extends Application {
         frequency.setPromptText("Frequency in MHz");
         frequency.setPrefWidth(130);
         var sampleRate = new ComboBox<Integer>();
-        sampleRate.getItems().addAll(2_000_000, 4_000_000, 8_000_000, 10_000_000);
-        sampleRate.getSelectionModel().selectFirst();
         sampleRate.setButtonCell(rateCell());
         sampleRate.setCellFactory(list -> rateCell());
+        var sampleRateGuidance = muted("");
         var mode = new ComboBox<DemodulationMode>();
         mode.getItems().addAll(DemodulationMode.values());
         try { mode.getSelectionModel().select(DemodulationMode.valueOf(preferences.get("lastMode", "NFM"))); }
@@ -714,7 +717,14 @@ public final class SdrPoleApplication extends Application {
         safety.setWrapText(true);
 
         Runnable updateHardwareControls = () -> {
-            boolean hackrf = deviceChoice.getValue() != null && "hackrf".equalsIgnoreCase(deviceChoice.getValue().driver());
+            var selected = deviceChoice.getValue();
+            boolean hackrf = HackRfTuningPolicy.appliesTo(selected);
+            var priorRate = sampleRate.getValue();
+            var supportedRates = HackRfTuningPolicy.receiveSampleRates(selected);
+            sampleRate.getItems().setAll(supportedRates);
+            if (priorRate != null && supportedRates.contains(priorRate)) sampleRate.setValue(priorRate);
+            else sampleRate.setValue(HackRfTuningPolicy.recommendedReceiveSampleRate(selected));
+            sampleRateGuidance.setText(HackRfTuningPolicy.guidance(selected));
             protectedControls.setManaged(hackrf);
             protectedControls.setVisible(hackrf);
             safety.setManaged(hackrf);
@@ -729,12 +739,14 @@ public final class SdrPoleApplication extends Application {
 
         var essentials = new HBox(10, field("Radio", deviceChoice), field("Frequency (MHz)", frequency), field("Mode", mode));
         essentials.setAlignment(Pos.BOTTOM_LEFT);
-        var advancedControls = new VBox(8, new HBox(10, field("Sample rate", sampleRate), genericGain, automaticGain),
+        var advancedControls = new VBox(8, new HBox(10, field("Sample rate", new VBox(2, sampleRate, sampleRateGuidance)), genericGain, automaticGain),
                 protectedControls, safety);
         advancedControls.setAlignment(Pos.BOTTOM_LEFT);
         var controls = new VBox(10, field("Quick examples", preset), essentials);
         if (advancedMode) controls.getChildren().add(advancedControls);
-        else controls.getChildren().add(muted("Recommended settings: 2 MS/s • 24 dB gain • mono system audio"));
+        else controls.getChildren().add(muted(HackRfTuningPolicy.appliesTo(deviceChoice.getValue())
+                ? "Recommended HackRF settings: 8 MS/s native input • LNA 16 dB • VGA 16 dB • RF amp off"
+                : "Recommended settings: 2 MS/s • 24 dB gain • mono system audio"));
 
         var waterfall = new WaterfallView(900, 300);
         var initialHz = new AtomicLong(Math.round(Double.parseDouble(frequency.getText().trim()) * 1_000_000));

@@ -72,6 +72,11 @@ Checked items are implemented in the repository, not merely mocked in the UI.
 - [ ] Recording and replay fixtures for deterministic tests
 - [x] HackRF LNA/VGA element controls and safe vendor-step clamping
 - [x] RF amplifier and antenna-port power default-off interlocks
+- [x] HackRF board/serial/firmware/API inventory and host-tool compatibility assessment
+- [x] HackRF-native 8–20 MS/s receive policy with narrow-channel software decimation
+- [ ] Read-only external-clock readiness and dropped-sample/USB health telemetry
+- [ ] Guided Opera Cake antenna/filter plans with explicit preview and approval
+- [ ] Negotiated HackRF Pro half-precision and extended-precision stream profiles
 - [ ] Per-device capability interrogation and safety profiles beyond HackRF
 
 ## Digital voice and trunking
